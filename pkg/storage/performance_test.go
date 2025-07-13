@@ -64,19 +64,19 @@ func TestIndexedVsNonIndexedPerformance(t *testing.T) {
 	t.Run("SingleField_IndexedVsNonIndexed", func(t *testing.T) {
 		// Query that will use index
 		start := time.Now()
-		indexedResults, err := engine.FindAll("users", map[string]interface{}{"age": 25}, nil)
+		indexedResults, err := engine.FindAll("users", map[string]interface{}{"age": 25}, &domain.PaginationOptions{Limit: 1000, MaxLimit: 1000})
 		indexedDuration := time.Since(start)
 		require.NoError(t, err)
 
 		// Query that won't use index (no index on name)
 		start = time.Now()
-		nonIndexedResults, err := engine.FindAll("users", map[string]interface{}{"name": "user25"}, nil)
+		nonIndexedResults, err := engine.FindAll("users", map[string]interface{}{"name": "user25"}, &domain.PaginationOptions{Limit: 1000, MaxLimit: 1000})
 		nonIndexedDuration := time.Since(start)
 		require.NoError(t, err)
 
 		// Verify results are correct
-		assert.Len(t, indexedResults, 100)  // Every 100th user has age 25
-		assert.Len(t, nonIndexedResults, 1) // Only one user named "user25"
+		assert.Len(t, indexedResults.Documents, 100)  // Every 100th user has age 25
+		assert.Len(t, nonIndexedResults.Documents, 1) // Only one user named "user25"
 
 		// Performance assertion: indexed should be significantly faster
 		speedup := float64(nonIndexedDuration) / float64(indexedDuration)
@@ -94,19 +94,19 @@ func TestIndexedVsNonIndexedPerformance(t *testing.T) {
 		intersectionResults, err := engine.FindAll("users", map[string]interface{}{
 			"age":  25,
 			"city": "city25", // This should match users with id 25, 125, 225, etc.
-		}, nil)
+		}, &domain.PaginationOptions{Limit: 1000, MaxLimit: 1000})
 		intersectionDuration := time.Since(start)
 		require.NoError(t, err)
 
 		// Query using only one index (age only)
 		start = time.Now()
-		singleIndexResults, err := engine.FindAll("users", map[string]interface{}{"age": 25}, nil)
+		singleIndexResults, err := engine.FindAll("users", map[string]interface{}{"age": 25}, &domain.PaginationOptions{Limit: 1000, MaxLimit: 1000})
 		singleIndexDuration := time.Since(start)
 		require.NoError(t, err)
 
 		// Query without any index (name field)
 		start = time.Now()
-		nonIndexedResults, err := engine.FindAll("users", map[string]interface{}{"name": "user25"}, nil)
+		nonIndexedResults, err := engine.FindAll("users", map[string]interface{}{"name": "user25"}, &domain.PaginationOptions{Limit: 1000, MaxLimit: 1000})
 		nonIndexedDuration := time.Since(start)
 		require.NoError(t, err)
 
@@ -115,9 +115,9 @@ func TestIndexedVsNonIndexedPerformance(t *testing.T) {
 		// Users with city "city25": id 25, 75, 125, 175, 225, 275, etc.
 		// Intersection: id 25, 125, 225, 325, 425, 525, 625, 725, 825, 925, 1025, 1125, etc.
 		expectedIntersection := 100 // Every 100th user has age 25, and every 50th user has city25, so intersection is 100
-		assert.Len(t, intersectionResults, expectedIntersection)
-		assert.Len(t, singleIndexResults, 100) // 100 users with age 25
-		assert.Len(t, nonIndexedResults, 1)    // Only one user named "user25"
+		assert.Len(t, intersectionResults.Documents, expectedIntersection)
+		assert.Len(t, singleIndexResults.Documents, 100) // 100 users with age 25
+		assert.Len(t, nonIndexedResults.Documents, 1)    // Only one user named "user25"
 
 		// Performance assertion: intersection should be much faster than non-indexed
 		// (even though it might be slower than single index due to intersection overhead)

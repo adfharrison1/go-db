@@ -17,12 +17,14 @@ func (se *StorageEngine) Insert(collName string, doc domain.Document) error {
 	if err != nil {
 		// Collection doesn't exist, create it
 		collection = domain.NewCollection(collName)
-		se.cache.Put(collName, collection, &CollectionInfo{
+		collectionInfo := &CollectionInfo{
 			Name:          collName,
 			DocumentCount: 0,
 			State:         CollectionStateDirty,
 			LastModified:  time.Now(),
-		})
+		}
+		se.collections[collName] = collectionInfo
+		se.cache.Put(collName, collection, collectionInfo)
 	}
 
 	// Generate unique ID
@@ -320,6 +322,9 @@ func (se *StorageEngine) applyCursorPagination(docs []domain.Document, options *
 
 // applyOffsetPagination applies offset-based pagination
 func (se *StorageEngine) applyOffsetPagination(docs []domain.Document, options *domain.PaginationOptions) (*domain.PaginationResult, error) {
+	if options.MaxLimit == 0 {
+		options.MaxLimit = int(^uint(0) >> 1) // set to max int
+	}
 	result := &domain.PaginationResult{
 		Documents: []domain.Document{},
 		HasNext:   false,
