@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/adfharrison1/go-db/pkg/data"
+	"github.com/adfharrison1/go-db/pkg/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +18,7 @@ func TestStorageEngine_SaveToFile(t *testing.T) {
 	defer engine.StopBackgroundWorkers()
 
 	// Insert test data
-	docs := []data.Document{
+	docs := []domain.Document{
 		{"name": "Alice", "age": 30, "city": "New York"},
 		{"name": "Bob", "age": 25, "city": "San Francisco"},
 		{"name": "Charlie", "age": 35, "city": "Chicago"},
@@ -51,7 +51,7 @@ func TestStorageEngine_LoadCollectionMetadata(t *testing.T) {
 	defer engine1.StopBackgroundWorkers()
 
 	// Insert test data
-	docs := []data.Document{
+	docs := []domain.Document{
 		{"name": "Alice", "age": 30},
 		{"name": "Bob", "age": 25},
 	}
@@ -152,12 +152,12 @@ func TestStorageEngine_SaveToFile_MultipleCollections(t *testing.T) {
 	defer engine.StopBackgroundWorkers()
 
 	// Insert data into multiple collections
-	users := []data.Document{
+	users := []domain.Document{
 		{"name": "Alice", "age": 30},
 		{"name": "Bob", "age": 25},
 	}
 
-	products := []data.Document{
+	products := []domain.Document{
 		{"name": "Laptop", "price": 999.99},
 		{"name": "Mouse", "price": 29.99},
 	}
@@ -204,7 +204,7 @@ func TestStorageEngine_SaveToFile_PermissionError(t *testing.T) {
 	defer engine.StopBackgroundWorkers()
 
 	// Insert some data
-	doc := data.Document{"test": "data"}
+	doc := domain.Document{"test": "data"}
 	err := engine.Insert("test", doc)
 	require.NoError(t, err)
 
@@ -223,7 +223,7 @@ func TestStorageEngine_LoadCollectionFromDisk(t *testing.T) {
 	defer engine1.StopBackgroundWorkers()
 
 	// Insert test data
-	docs := []data.Document{
+	docs := []domain.Document{
 		{"name": "Alice", "age": 30},
 		{"name": "Bob", "age": 25},
 	}
@@ -261,7 +261,7 @@ func TestStorageEngine_SaveToFile_ConcurrentAccess(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < docsPerGoroutine; j++ {
-				doc := data.Document{
+				doc := domain.Document{
 					"goroutine": id,
 					"doc_id":    j,
 					"data":      "concurrent test",
@@ -292,7 +292,7 @@ func TestStorageEngine_FileFormatCompatibility(t *testing.T) {
 	defer engine.StopBackgroundWorkers()
 
 	// Insert test data
-	doc := data.Document{"name": "Test", "value": 42}
+	doc := domain.Document{"name": "Test", "value": 42}
 	err := engine.Insert("test", doc)
 	require.NoError(t, err)
 

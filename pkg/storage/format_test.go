@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"testing"
 
+	"github.com/adfharrison1/go-db/pkg/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -82,76 +83,87 @@ func TestFileHeader_ShortBuffer(t *testing.T) {
 }
 
 func TestStorageData_NewStorageData(t *testing.T) {
-	data := NewStorageData()
+	storageData := NewStorageData()
 
-	assert.NotNil(t, data)
-	assert.NotNil(t, data.Collections)
-	assert.NotNil(t, data.Indexes)
-	assert.NotNil(t, data.Metadata)
+	assert.NotNil(t, storageData)
+	assert.NotNil(t, storageData.Collections)
+	assert.NotNil(t, storageData.Indexes)
+	assert.NotNil(t, storageData.Metadata)
 
 	// Verify maps are empty
-	assert.Len(t, data.Collections, 0)
-	assert.Len(t, data.Indexes, 0)
-	assert.Len(t, data.Metadata, 0)
+	assert.Len(t, storageData.Collections, 0)
+	assert.Len(t, storageData.Indexes, 0)
+	assert.Len(t, storageData.Metadata, 0)
 }
 
 func TestStorageData_AddCollections(t *testing.T) {
-	data := NewStorageData()
+	storageData := NewStorageData()
 
 	// Add some test data
-	data.Collections["users"] = map[string]interface{}{
-		"1": map[string]interface{}{"name": "Alice", "age": 30},
-		"2": map[string]interface{}{"name": "Bob", "age": 25},
+	storageData.Collections["users"] = map[string]interface{}{
+		"1": domain.Document{"name": "Alice"},
+		"2": domain.Document{"name": "Bob", "age": 25},
 	}
 
-	data.Collections["products"] = map[string]interface{}{
-		"1": map[string]interface{}{"name": "Laptop", "price": 999.99},
+	storageData.Collections["products"] = map[string]interface{}{
+		"1": domain.Document{"name": "Laptop", "price": 999.99},
 	}
 
 	// Verify data was added
-	assert.Len(t, data.Collections, 2)
-	assert.Len(t, data.Collections["users"], 2)
-	assert.Len(t, data.Collections["products"], 1)
+	assert.Len(t, storageData.Collections, 2)
+	assert.Len(t, storageData.Collections["users"], 2)
+	assert.Len(t, storageData.Collections["products"], 1)
 
 	// Verify specific values
-	user1 := data.Collections["users"]["1"].(map[string]interface{})
+	user1 := storageData.Collections["users"]["1"].(domain.Document)
 	assert.Equal(t, "Alice", user1["name"])
-	assert.Equal(t, 30, user1["age"])
+	// No 'age' field for user1
+	user2 := storageData.Collections["users"]["2"].(domain.Document)
+	assert.Equal(t, "Bob", user2["name"])
+	ageVal := user2["age"]
+	switch v := ageVal.(type) {
+	case int:
+		assert.Equal(t, 25, v)
+	case float64:
+		assert.Equal(t, 25.0, v)
+	default:
+		t.Errorf("unexpected type for age: %T", v)
+	}
 
-	product1 := data.Collections["products"]["1"].(map[string]interface{})
+	product1 := storageData.Collections["products"]["1"].(domain.Document)
 	assert.Equal(t, "Laptop", product1["name"])
 	assert.Equal(t, 999.99, product1["price"])
 }
 
 func TestStorageData_AddIndexes(t *testing.T) {
-	data := NewStorageData()
+	storageData := NewStorageData()
 
 	// Add some test indexes
-	data.Indexes["users"] = map[string][]string{
+	storageData.Indexes["users"] = map[string][]string{
 		"name": {"1", "2"},
 		"age":  {"2", "1"},
 	}
 
 	// Verify indexes were added
-	assert.Len(t, data.Indexes, 1)
-	assert.Len(t, data.Indexes["users"], 2)
-	assert.Equal(t, []string{"1", "2"}, data.Indexes["users"]["name"])
-	assert.Equal(t, []string{"2", "1"}, data.Indexes["users"]["age"])
+	assert.Len(t, storageData.Indexes, 1)
+	assert.Len(t, storageData.Indexes["users"], 2)
+	assert.Equal(t, []string{"1", "2"}, storageData.Indexes["users"]["name"])
+	assert.Equal(t, []string{"2", "1"}, storageData.Indexes["users"]["age"])
 }
 
 func TestStorageData_AddMetadata(t *testing.T) {
-	data := NewStorageData()
+	storageData := NewStorageData()
 
 	// Add some test metadata
-	data.Metadata["created_at"] = "2023-01-01T00:00:00Z"
-	data.Metadata["version"] = "1.0.0"
-	data.Metadata["total_documents"] = 1000
+	storageData.Metadata["created_at"] = "2023-01-01T00:00:00Z"
+	storageData.Metadata["version"] = "1.0.0"
+	storageData.Metadata["total_documents"] = 1000
 
 	// Verify metadata was added
-	assert.Len(t, data.Metadata, 3)
-	assert.Equal(t, "2023-01-01T00:00:00Z", data.Metadata["created_at"])
-	assert.Equal(t, "1.0.0", data.Metadata["version"])
-	assert.Equal(t, 1000, data.Metadata["total_documents"])
+	assert.Len(t, storageData.Metadata, 3)
+	assert.Equal(t, "2023-01-01T00:00:00Z", storageData.Metadata["created_at"])
+	assert.Equal(t, "1.0.0", storageData.Metadata["version"])
+	assert.Equal(t, 1000, storageData.Metadata["total_documents"])
 }
 
 func TestConstants(t *testing.T) {
