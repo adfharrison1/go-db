@@ -18,8 +18,8 @@ A minimal Mongo-like database written in Go, optimized for speed and efficiency 
 - **~2.2x faster** than JSON storage (6.7ms vs 14.5ms for 1000 documents)
 - **~8x smaller** file sizes (87% space savings)
 - **50% fewer allocations** during serialization
-- **~6.3M documents/second** streaming throughput
-- **Indexed queries** for sub-millisecond response times
+- **~5.2M documents/second** streaming throughput
+- **Indexed queries** framework in place (implementation in progress)
 
 ## Getting Started
 

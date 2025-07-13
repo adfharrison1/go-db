@@ -34,7 +34,8 @@ The Storage Engine is a sophisticated database engine that implements proper mem
 - **Comprehensive Testing**: Unit and integration tests for all components
 - **Thread Safety**: Full concurrency support with RWMutex protection
 - **Error Handling**: Robust error handling with context preservation
-- **Dependency Injection**: Clean separation between storage and indexing engines
+- **Interface-based Design**: Clean separation between storage and indexing engines
+- **API Dependency Injection**: Handlers accept storage and index engines for testability
 - **Unified Find Methods**: Shared logic between FindAll and FindAllStream operations
 
 ## Architecture
@@ -54,8 +55,37 @@ The Storage Engine is a sophisticated database engine that implements proper mem
 │  │   Format    │  │ Persistence │  │  Streaming  │        │
 │  │ (format.go) │  │(persistence)│  │(streaming.go)│        │
 │  └─────────────┘  └─────────────┘  └─────────────┘        │
+│                                                             │
+│  ┌─────────────┐                                            │
+│  │ IndexEngine │  # Embedded for internal use               │
+│  │ (indexing)  │                                            │
+│  └─────────────┘                                            │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### Dependency Injection Pattern
+
+The system uses dependency injection in the **API layer** for testability:
+
+```go
+// API handlers accept interfaces for testing
+type Handler struct {
+    storage domain.StorageEngine
+    indexer domain.IndexEngine
+}
+
+// Server creates concrete implementations
+func NewServer() *Server {
+    dbEngine := storage.NewStorageEngine()      // Creates its own index engine
+    indexEngine := indexing.NewIndexEngine()    // Separate instance for API
+
+    return &Server{
+        api: api.NewHandler(dbEngine, indexEngine), // DI for testability
+    }
+}
+```
+
+**Note**: The storage engine embeds its own index engine internally, while the API layer uses dependency injection to accept both storage and index engines for testing purposes.
 
 ### File Structure
 
@@ -136,7 +166,7 @@ docs, err := engine.FindAll("users")
 // Find all documents (loads entire collection)
 docs, err := engine.FindAll("users", nil)
 
-// Find with filter
+// Find with filter (currently uses full collection scan)
 filter := map[string]interface{}{"age": 30}
 docs, err := engine.FindAll("users", filter)
 
@@ -146,7 +176,7 @@ if err != nil {
     return err
 }
 
-// Stream with filter
+// Stream with filter (currently uses full collection scan)
 filter := map[string]interface{}{"age": 30}
 docChan, err := engine.FindAllStream("users", filter)
 
@@ -211,11 +241,11 @@ storage.WithBackgroundSave(5 * time.Minute)
 
 Based on our test results:
 
-- **Streaming Throughput**: ~6.3M documents/second
+- **Streaming Throughput**: ~5.2M documents/second (in-memory operations)
 - **LRU Cache Operations**: ~1.4M operations/second
 - **File I/O**: ~2.2x faster than JSON, ~8x smaller files
 - **Memory Allocations**: 50% reduction vs JSON serialization
-- **Indexed Queries**: Sub-millisecond response times for indexed fields
+- **Indexed Queries**: Framework in place for sub-millisecond response times (implementation in progress)
 - **Filtered Streaming**: Maintains high throughput with filter support
 
 ### Scalability
