@@ -8,7 +8,6 @@ import (
 func (h *Handler) RegisterRoutes(router *mux.Router) {
 	// Collection operations
 	router.HandleFunc("/collections/{coll}/insert", h.HandleInsert).Methods("POST")
-	router.HandleFunc("/collections/{coll}/find", h.HandleFind).Methods("GET")
 	router.HandleFunc("/collections/{coll}/stream", h.HandleStream).Methods("GET")
 
 	// Document operations (by ID)
@@ -16,7 +15,7 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/collections/{coll}/documents/{id}", h.HandleUpdateById).Methods("PUT")
 	router.HandleFunc("/collections/{coll}/documents/{id}", h.HandleDeleteById).Methods("DELETE")
 
-	// Filtered find (query parameters)
+	// Find with optional filtering (query parameters)
 	router.HandleFunc("/collections/{coll}/find", h.HandleFindWithFilter).Methods("GET")
 
 	// Add more routes as needed

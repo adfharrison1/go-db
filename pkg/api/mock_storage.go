@@ -1,6 +1,8 @@
 package api
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/adfharrison1/go-db/pkg/domain"
@@ -33,9 +35,21 @@ func (m *MockStorageEngine) Insert(collName string, doc domain.Document) error {
 		m.collections[collName] = make([]domain.Document, 0)
 	}
 
-	// Add ID if not present
+	// Add ID if not present - use string IDs consistently
 	if _, exists := doc["_id"]; !exists {
-		doc["_id"] = len(m.collections[collName]) + 1
+		doc["_id"] = fmt.Sprintf("%d", len(m.collections[collName])+1)
+	} else {
+		// Convert numeric IDs to strings for consistency
+		if id, ok := doc["_id"]; ok {
+			switch v := id.(type) {
+			case int:
+				doc["_id"] = fmt.Sprintf("%d", v)
+			case float64:
+				doc["_id"] = fmt.Sprintf("%.0f", v)
+			case int64:
+				doc["_id"] = fmt.Sprintf("%d", v)
+			}
+		}
 	}
 
 	m.collections[collName] = append(m.collections[collName], doc)
@@ -276,18 +290,71 @@ func (m *MockStorageEngine) FindAllWithFilter(collName string, filter map[string
 	return results, nil
 }
 
-// matchesFilter checks if a document matches filter criteria (simplified version)
+// matchesFilter checks if a document matches filter criteria
 func matchesFilter(doc domain.Document, filter map[string]interface{}) bool {
 	for field, expectedValue := range filter {
 		actualValue, exists := doc[field]
 		if !exists {
 			return false
 		}
-		if actualValue != expectedValue {
+
+		if !valuesMatch(actualValue, expectedValue) {
 			return false
 		}
 	}
 	return true
+}
+
+// valuesMatch compares two values for equality, handling different types
+func valuesMatch(actual, expected interface{}) bool {
+	// Handle nil values
+	if actual == nil && expected == nil {
+		return true
+	}
+	if actual == nil || expected == nil {
+		return false
+	}
+
+	// Handle string comparison (case-insensitive for better UX)
+	if actualStr, ok1 := actual.(string); ok1 {
+		if expectedStr, ok2 := expected.(string); ok2 {
+			return strings.EqualFold(actualStr, expectedStr)
+		}
+	}
+
+	// Handle numeric comparison
+	if actualNum, ok1 := toFloat64(actual); ok1 {
+		if expectedNum, ok2 := toFloat64(expected); ok2 {
+			return actualNum == expectedNum
+		}
+	}
+
+	// Default to direct comparison
+	return actual == expected
+}
+
+// toFloat64 converts various numeric types to float64 for comparison
+func toFloat64(value interface{}) (float64, bool) {
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case int32:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case uint:
+		return float64(v), true
+	case uint32:
+		return float64(v), true
+	case uint64:
+		return float64(v), true
+	default:
+		return 0, false
+	}
 }
 
 // DocumentNotFoundError represents a document not found error
