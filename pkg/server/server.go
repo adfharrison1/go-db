@@ -10,25 +10,29 @@ import (
 
 	"github.com/adfharrison1/go-db/pkg/api"
 	"github.com/adfharrison1/go-db/pkg/domain"
+	"github.com/adfharrison1/go-db/pkg/indexing"
 	"github.com/adfharrison1/go-db/pkg/storage"
 )
 
 // Server holds references to storage, router, etc.
 type Server struct {
-	router   *mux.Router
-	dbEngine domain.StorageEngine
-	api      *api.Handler
-	mu       sync.RWMutex
+	router      *mux.Router
+	dbEngine    domain.StorageEngine
+	indexEngine domain.IndexEngine
+	api         *api.Handler
+	mu          sync.RWMutex
 }
 
 // NewServer creates a new instance of Server.
 func NewServer() *Server {
 	dbEngine := storage.NewStorageEngine()
+	indexEngine := indexing.NewIndexEngine()
 
 	s := &Server{
-		router:   mux.NewRouter(),
-		dbEngine: dbEngine,
-		api:      api.NewHandler(dbEngine),
+		router:      mux.NewRouter(),
+		dbEngine:    dbEngine,
+		indexEngine: indexEngine,
+		api:         api.NewHandler(dbEngine, indexEngine),
 	}
 
 	// Register API routes

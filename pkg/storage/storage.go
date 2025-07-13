@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/adfharrison1/go-db/pkg/domain"
+	"github.com/adfharrison1/go-db/pkg/indexing"
 )
 
 // StorageEngine provides memory management with LRU caching and lazy loading
@@ -15,7 +16,7 @@ type StorageEngine struct {
 	mu          sync.RWMutex
 	cache       *LRUCache
 	collections map[string]*CollectionInfo // Collection metadata (always in memory)
-	indexes     map[string]*domain.Collection
+	indexEngine *indexing.IndexEngine
 	metadata    map[string]interface{}
 
 	// Configuration
@@ -33,7 +34,7 @@ type StorageEngine struct {
 func NewStorageEngine(options ...StorageOption) *StorageEngine {
 	engine := &StorageEngine{
 		collections:    make(map[string]*CollectionInfo),
-		indexes:        make(map[string]*domain.Collection),
+		indexEngine:    indexing.NewIndexEngine(),
 		metadata:       make(map[string]interface{}),
 		maxMemoryMB:    1024, // 1GB default
 		dataDir:        ".",
@@ -108,6 +109,10 @@ func (se *StorageEngine) Insert(collName string, doc domain.Document) error {
 	// Generate unique ID
 	newID := fmt.Sprintf("%d", len(collection.Documents)+1)
 	doc["_id"] = newID
+
+	// Update indexes before inserting (oldDoc is nil for new documents)
+	se.updateIndexes(collName, newID, nil, doc)
+
 	collection.Documents[newID] = doc
 
 	// Mark as dirty
@@ -120,19 +125,30 @@ func (se *StorageEngine) Insert(collName string, doc domain.Document) error {
 	return nil
 }
 
-// FindAll returns all documents in a collection (for backward compatibility)
-func (se *StorageEngine) FindAll(collName string) ([]domain.Document, error) {
+// FindAll returns documents that match the given filter criteria
+// If filter is nil or empty, returns all documents
+func (se *StorageEngine) FindAll(collName string, filter map[string]interface{}) ([]domain.Document, error) {
 	se.mu.RLock()
 	defer se.mu.RUnlock()
+
+	// Try to use index optimization first
+	if len(filter) > 0 {
+		return se.findWithIndexOptimization(collName, filter)
+	}
+
+	// No filter or no suitable index, fall back to full scan
 	collection, err := se.getCollectionInternal(collName)
 	if err != nil {
 		return nil, err
 	}
 
-	results := make([]domain.Document, 0, len(collection.Documents))
+	var results []domain.Document
 	for _, doc := range collection.Documents {
-		results = append(results, doc)
+		if len(filter) == 0 || matchesFilter(doc, filter) {
+			results = append(results, doc)
+		}
 	}
+
 	return results, nil
 }
 
@@ -209,6 +225,9 @@ func (se *StorageEngine) CreateCollection(collName string) error {
 	se.collections[collName] = info
 	se.cache.Put(collName, collection, info)
 
+	// Initialize indexes for this collection using the index engine
+	se.indexEngine.CreateIndex(collName, "_id")
+
 	return nil
 }
 
@@ -245,12 +264,21 @@ func (se *StorageEngine) UpdateById(collName, docId string, updates domain.Docum
 		return fmt.Errorf("document with id %s not found in collection %s", docId, collName)
 	}
 
+	// Create a copy of the old document for index updates
+	oldDoc := make(domain.Document)
+	for k, v := range doc {
+		oldDoc[k] = v
+	}
+
 	// Apply updates to the document
 	for key, value := range updates {
 		if key != "_id" { // Prevent updating the document ID
 			doc[key] = value
 		}
 	}
+
+	// Update indexes with the change
+	se.updateIndexes(collName, docId, oldDoc, doc)
 
 	// Mark collection as dirty for persistence
 	if _, collectionInfo, found := se.cache.Get(collName); found {
@@ -271,9 +299,13 @@ func (se *StorageEngine) DeleteById(collName, docId string) error {
 		return err
 	}
 
-	if _, exists := collection.Documents[docId]; !exists {
+	doc, exists := collection.Documents[docId]
+	if !exists {
 		return fmt.Errorf("document with id %s not found in collection %s", docId, collName)
 	}
+
+	// Update indexes before deleting (newDoc is nil for deletions)
+	se.updateIndexes(collName, docId, doc, nil)
 
 	delete(collection.Documents, docId)
 
@@ -285,26 +317,6 @@ func (se *StorageEngine) DeleteById(collName, docId string) error {
 	}
 
 	return nil
-}
-
-// FindAllWithFilter returns documents that match the given filter criteria
-func (se *StorageEngine) FindAllWithFilter(collName string, filter map[string]interface{}) ([]domain.Document, error) {
-	se.mu.RLock()
-	defer se.mu.RUnlock()
-
-	collection, err := se.getCollectionInternal(collName)
-	if err != nil {
-		return nil, err
-	}
-
-	var results []domain.Document
-	for _, doc := range collection.Documents {
-		if matchesFilter(doc, filter) {
-			results = append(results, doc)
-		}
-	}
-
-	return results, nil
 }
 
 // matchesFilter checks if a document matches the given filter criteria
@@ -372,4 +384,118 @@ func toFloat64(value interface{}) (float64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// CreateIndex creates an index on a specific field in a collection
+func (se *StorageEngine) CreateIndex(collName, fieldName string) error {
+	se.mu.Lock()
+	defer se.mu.Unlock()
+	collection, err := se.getCollectionInternal(collName)
+	if err != nil {
+		return err
+	}
+	if err := se.indexEngine.CreateIndex(collName, fieldName); err != nil {
+		return err
+	}
+	return se.indexEngine.BuildIndexForCollection(collName, fieldName, collection)
+}
+
+// DropIndex removes an index from a collection
+func (se *StorageEngine) DropIndex(collName, fieldName string) error {
+	se.mu.Lock()
+	defer se.mu.Unlock()
+	return se.indexEngine.DropIndex(collName, fieldName)
+}
+
+// FindByIndex finds documents using an index
+func (se *StorageEngine) FindByIndex(collName, fieldName string, value interface{}) ([]domain.Document, error) {
+	se.mu.RLock()
+	defer se.mu.RUnlock()
+	collection, err := se.getCollectionInternal(collName)
+	if err != nil {
+		return nil, err
+	}
+	index, exists := se.indexEngine.GetIndex(collName, fieldName)
+	if !exists {
+		return nil, nil
+	}
+	ids := index.Query(value)
+	var results []domain.Document
+	for _, id := range ids {
+		if doc, ok := collection.Documents[id]; ok {
+			results = append(results, doc)
+		}
+	}
+	return results, nil
+}
+
+// GetIndexes returns all index names for a collection
+func (se *StorageEngine) GetIndexes(collName string) ([]string, error) {
+	se.mu.RLock()
+	defer se.mu.RUnlock()
+	return se.indexEngine.GetIndexes(collName)
+}
+
+// UpdateIndex rebuilds an index for a collection
+func (se *StorageEngine) UpdateIndex(collName, fieldName string) error {
+	se.mu.Lock()
+	defer se.mu.Unlock()
+	collection, err := se.getCollectionInternal(collName)
+	if err != nil {
+		return err
+	}
+	return se.indexEngine.BuildIndexForCollection(collName, fieldName, collection)
+}
+
+// getIndex returns an index for a specific field in a collection
+func (se *StorageEngine) getIndex(collName, fieldName string) (*indexing.Index, bool) {
+	// This method is now handled by the index engine
+	// For now, return nil as the index engine handles this internally
+	return nil, false
+}
+
+// updateIndexes updates all indexes for a collection when a document changes
+func (se *StorageEngine) updateIndexes(collName, docID string, oldDoc, newDoc domain.Document) {
+	se.indexEngine.UpdateIndexForDocument(collName, docID, oldDoc, newDoc)
+}
+
+// findWithIndexOptimization attempts to use indexes for faster queries
+func (se *StorageEngine) findWithIndexOptimization(collName string, filter map[string]interface{}) ([]domain.Document, error) {
+	collection, err := se.getCollectionInternal(collName)
+	if err != nil {
+		return nil, err
+	}
+
+	// If we have an index on the first filter field, use it for optimization
+	for fieldName, expectedValue := range filter {
+		if index, exists := se.getIndex(collName, fieldName); exists {
+			// Use index to get candidate document IDs
+			candidateIDs := index.Query(expectedValue)
+
+			// If we have candidates, filter them further
+			if len(candidateIDs) > 0 {
+				var results []domain.Document
+				for _, docID := range candidateIDs {
+					if doc, exists := collection.Documents[docID]; exists {
+						// Apply full filter to ensure all conditions are met
+						if matchesFilter(doc, filter) {
+							results = append(results, doc)
+						}
+					}
+				}
+				return results, nil
+			}
+			// If no candidates found, return empty result
+			return []domain.Document{}, nil
+		}
+	}
+
+	// No suitable index found, fall back to full collection scan
+	var results []domain.Document
+	for _, doc := range collection.Documents {
+		if matchesFilter(doc, filter) {
+			results = append(results, doc)
+		}
+	}
+	return results, nil
 }

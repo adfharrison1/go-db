@@ -56,8 +56,9 @@ func (m *MockStorageEngine) Insert(collName string, doc domain.Document) error {
 	return nil
 }
 
-// FindAll returns all documents in a collection
-func (m *MockStorageEngine) FindAll(collName string) ([]domain.Document, error) {
+// FindAll returns documents that match the given filter criteria
+// If filter is nil or empty, returns all documents
+func (m *MockStorageEngine) FindAll(collName string, filter map[string]interface{}) ([]domain.Document, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -68,7 +69,18 @@ func (m *MockStorageEngine) FindAll(collName string) ([]domain.Document, error) 
 		return nil, &CollectionNotFoundError{collName}
 	}
 
-	return docs, nil
+	if len(filter) == 0 {
+		return docs, nil
+	}
+
+	var results []domain.Document
+	for _, doc := range docs {
+		if matchesFilter(doc, filter) {
+			results = append(results, doc)
+		}
+	}
+
+	return results, nil
 }
 
 // FindAllStream streams documents from a collection
@@ -94,6 +106,122 @@ func (m *MockStorageEngine) FindAllStream(collName string) (<-chan domain.Docume
 	}()
 
 	return docChan, nil
+}
+
+// GetById retrieves a document by ID
+func (m *MockStorageEngine) GetById(collName, docId string) (domain.Document, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	docs, exists := m.collections[collName]
+	if !exists {
+		return nil, &CollectionNotFoundError{collName}
+	}
+
+	for _, doc := range docs {
+		if id, exists := doc["_id"]; exists {
+			// Convert ID to string for comparison
+			var idStr string
+			switch v := id.(type) {
+			case string:
+				idStr = v
+			case int:
+				idStr = fmt.Sprintf("%d", v)
+			case float64:
+				idStr = fmt.Sprintf("%.0f", v)
+			case int64:
+				idStr = fmt.Sprintf("%d", v)
+			default:
+				idStr = fmt.Sprintf("%v", v)
+			}
+
+			if idStr == docId {
+				return doc, nil
+			}
+		}
+	}
+
+	return nil, &DocumentNotFoundError{docId}
+}
+
+// UpdateById updates a document by ID
+func (m *MockStorageEngine) UpdateById(collName, docId string, updates domain.Document) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	docs, exists := m.collections[collName]
+	if !exists {
+		return &CollectionNotFoundError{collName}
+	}
+
+	for i, doc := range docs {
+		if id, exists := doc["_id"]; exists {
+			// Convert ID to string for comparison
+			var idStr string
+			switch v := id.(type) {
+			case string:
+				idStr = v
+			case int:
+				idStr = fmt.Sprintf("%d", v)
+			case float64:
+				idStr = fmt.Sprintf("%.0f", v)
+			case int64:
+				idStr = fmt.Sprintf("%d", v)
+			default:
+				idStr = fmt.Sprintf("%v", v)
+			}
+
+			if idStr == docId {
+				// Apply updates (excluding _id)
+				for key, value := range updates {
+					if key != "_id" {
+						docs[i][key] = value
+					}
+				}
+				return nil
+			}
+		}
+	}
+
+	return &DocumentNotFoundError{docId}
+}
+
+// DeleteById removes a document by ID
+func (m *MockStorageEngine) DeleteById(collName, docId string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	docs, exists := m.collections[collName]
+	if !exists {
+		return &CollectionNotFoundError{collName}
+	}
+
+	for i, doc := range docs {
+		if id, exists := doc["_id"]; exists {
+			// Convert ID to string for comparison
+			var idStr string
+			switch v := id.(type) {
+			case string:
+				idStr = v
+			case int:
+				idStr = fmt.Sprintf("%d", v)
+			case float64:
+				idStr = fmt.Sprintf("%.0f", v)
+			case int64:
+				idStr = fmt.Sprintf("%d", v)
+			default:
+				idStr = fmt.Sprintf("%v", v)
+			}
+
+			if idStr == docId {
+				// Remove document from slice
+				m.collections[collName] = append(docs[:i], docs[i+1:]...)
+				return nil
+			}
+		}
+	}
+
+	return &DocumentNotFoundError{docId}
 }
 
 // CreateCollection creates a new collection
@@ -127,40 +255,36 @@ func (m *MockStorageEngine) SaveToFile(filename string) error {
 // GetMemoryStats returns memory statistics
 func (m *MockStorageEngine) GetMemoryStats() map[string]interface{} {
 	return map[string]interface{}{
-		"alloc_mb":       0,
-		"total_alloc_mb": 0,
-		"sys_mb":         0,
-		"num_goroutines": 0,
-		"cache_size":     0,
-		"collections":    len(m.collections),
+		"collections": len(m.collections),
+		"documents":   m.getTotalDocumentCount(),
 	}
 }
 
 // StartBackgroundWorkers starts background workers
 func (m *MockStorageEngine) StartBackgroundWorkers() {
-	// No-op for mock
+	// Mock implementation
 }
 
 // StopBackgroundWorkers stops background workers
 func (m *MockStorageEngine) StopBackgroundWorkers() {
-	// No-op for mock
+	// Mock implementation
 }
 
-// GetInsertCalls returns the number of Insert calls made
+// GetInsertCalls returns the number of insert calls
 func (m *MockStorageEngine) GetInsertCalls() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.insertCalls
 }
 
-// GetFindCalls returns the number of FindAll calls made
+// GetFindCalls returns the number of find calls
 func (m *MockStorageEngine) GetFindCalls() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.findCalls
 }
 
-// GetStreamCalls returns the number of FindAllStream calls made
+// GetStreamCalls returns the number of stream calls
 func (m *MockStorageEngine) GetStreamCalls() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -179,121 +303,46 @@ func (m *MockStorageEngine) GetCollectionCount(collName string) int {
 	return len(docs)
 }
 
-// Custom error types for better error handling
+// getTotalDocumentCount returns the total number of documents across all collections
+func (m *MockStorageEngine) getTotalDocumentCount() int {
+	total := 0
+	for _, docs := range m.collections {
+		total += len(docs)
+	}
+	return total
+}
+
+// CollectionNotFoundError represents a collection not found error
 type CollectionNotFoundError struct {
 	CollectionName string
 }
 
 func (e *CollectionNotFoundError) Error() string {
-	return "collection " + e.CollectionName + " does not exist"
+	return fmt.Sprintf("collection %s does not exist", e.CollectionName)
 }
 
+// CollectionExistsError represents a collection already exists error
 type CollectionExistsError struct {
 	CollectionName string
 }
 
 func (e *CollectionExistsError) Error() string {
-	return "collection " + e.CollectionName + " already exists"
+	return fmt.Sprintf("collection %s already exists", e.CollectionName)
 }
 
-// GetById returns a document by ID
-func (m *MockStorageEngine) GetById(collName, docId string) (domain.Document, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	docs, exists := m.collections[collName]
-	if !exists {
-		return nil, &CollectionNotFoundError{collName}
-	}
-
-	// Find document by ID
-	for _, doc := range docs {
-		if id, ok := doc["_id"]; ok {
-			if idStr, ok := id.(string); ok && idStr == docId {
-				return doc, nil
-			}
-		}
-	}
-
-	return nil, &DocumentNotFoundError{docId}
+// DocumentNotFoundError represents a document not found error
+type DocumentNotFoundError struct {
+	DocID string
 }
 
-// UpdateById updates a document by ID
-func (m *MockStorageEngine) UpdateById(collName, docId string, updates domain.Document) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	docs, exists := m.collections[collName]
-	if !exists {
-		return &CollectionNotFoundError{collName}
-	}
-
-	// Find and update document by ID
-	for i, doc := range docs {
-		if id, ok := doc["_id"]; ok {
-			if idStr, ok := id.(string); ok && idStr == docId {
-				// Apply updates
-				for key, value := range updates {
-					if key != "_id" { // Prevent updating ID
-						docs[i][key] = value
-					}
-				}
-				return nil
-			}
-		}
-	}
-
-	return &DocumentNotFoundError{docId}
+func (e *DocumentNotFoundError) Error() string {
+	return fmt.Sprintf("document %s not found", e.DocID)
 }
 
-// DeleteById removes a document by ID
-func (m *MockStorageEngine) DeleteById(collName, docId string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	docs, exists := m.collections[collName]
-	if !exists {
-		return &CollectionNotFoundError{collName}
-	}
-
-	// Find and remove document by ID
-	for i, doc := range docs {
-		if id, ok := doc["_id"]; ok {
-			if idStr, ok := id.(string); ok && idStr == docId {
-				// Remove document
-				m.collections[collName] = append(docs[:i], docs[i+1:]...)
-				return nil
-			}
-		}
-	}
-
-	return &DocumentNotFoundError{docId}
-}
-
-// FindAllWithFilter returns documents matching filter criteria
-func (m *MockStorageEngine) FindAllWithFilter(collName string, filter map[string]interface{}) ([]domain.Document, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	docs, exists := m.collections[collName]
-	if !exists {
-		return nil, &CollectionNotFoundError{collName}
-	}
-
-	var results []domain.Document
-	for _, doc := range docs {
-		if matchesFilter(doc, filter) {
-			results = append(results, doc)
-		}
-	}
-
-	return results, nil
-}
-
-// matchesFilter checks if a document matches filter criteria
+// matchesFilter checks if a document matches the given filter criteria
 func matchesFilter(doc domain.Document, filter map[string]interface{}) bool {
-	for field, expectedValue := range filter {
-		actualValue, exists := doc[field]
+	for key, expectedValue := range filter {
+		actualValue, exists := doc[key]
 		if !exists {
 			return false
 		}
@@ -305,63 +354,42 @@ func matchesFilter(doc domain.Document, filter map[string]interface{}) bool {
 	return true
 }
 
-// valuesMatch compares two values for equality, handling different types
+// valuesMatch compares two values for equality, handling type conversions
 func valuesMatch(actual, expected interface{}) bool {
-	// Handle nil values
-	if actual == nil && expected == nil {
+	// Direct equality check
+	if actual == expected {
 		return true
 	}
-	if actual == nil || expected == nil {
-		return false
+
+	// Handle numeric type conversions
+	if actualFloat, ok := toFloat64(actual); ok {
+		if expectedFloat, ok := toFloat64(expected); ok {
+			return actualFloat == expectedFloat
+		}
 	}
 
-	// Handle string comparison (case-insensitive for better UX)
-	if actualStr, ok1 := actual.(string); ok1 {
-		if expectedStr, ok2 := expected.(string); ok2 {
+	// Handle string case-insensitive comparison
+	if actualStr, ok := actual.(string); ok {
+		if expectedStr, ok := expected.(string); ok {
 			return strings.EqualFold(actualStr, expectedStr)
 		}
 	}
 
-	// Handle numeric comparison
-	if actualNum, ok1 := toFloat64(actual); ok1 {
-		if expectedNum, ok2 := toFloat64(expected); ok2 {
-			return actualNum == expectedNum
-		}
-	}
-
-	// Default to direct comparison
-	return actual == expected
+	return false
 }
 
-// toFloat64 converts various numeric types to float64 for comparison
+// toFloat64 converts a value to float64 if possible
 func toFloat64(value interface{}) (float64, bool) {
 	switch v := value.(type) {
 	case float64:
 		return v, true
-	case float32:
-		return float64(v), true
 	case int:
-		return float64(v), true
-	case int32:
 		return float64(v), true
 	case int64:
 		return float64(v), true
-	case uint:
-		return float64(v), true
-	case uint32:
-		return float64(v), true
-	case uint64:
+	case float32:
 		return float64(v), true
 	default:
 		return 0, false
 	}
-}
-
-// DocumentNotFoundError represents a document not found error
-type DocumentNotFoundError struct {
-	DocID string
-}
-
-func (e *DocumentNotFoundError) Error() string {
-	return "document not found: " + e.DocID
 }

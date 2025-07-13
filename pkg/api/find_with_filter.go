@@ -36,30 +36,20 @@ func (h *Handler) HandleFindWithFilter(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If no filters provided, return all documents
-	if len(filter) == 0 {
-		docs, err := h.storage.FindAll(collName)
-		if err != nil {
-			log.Printf("ERROR: Collection '%s' not found: %v", collName, err)
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-
-		log.Printf("INFO: Found %d documents in collection '%s' (no filter)", len(docs), collName)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(docs)
-		return
-	}
-
-	// Apply filters
-	docs, err := h.storage.FindAllWithFilter(collName, filter)
+	// Use the unified FindAll method with filter
+	docs, err := h.storage.FindAll(collName, filter)
 	if err != nil {
 		log.Printf("ERROR: Collection '%s' not found: %v", collName, err)
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
-	log.Printf("INFO: Found %d documents in collection '%s' with filter %v", len(docs), collName, filter)
+	if len(filter) == 0 {
+		log.Printf("INFO: Found %d documents in collection '%s' (no filter)", len(docs), collName)
+	} else {
+		log.Printf("INFO: Found %d documents in collection '%s' with filter %v", len(docs), collName, filter)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(docs)
 }

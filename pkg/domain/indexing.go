@@ -6,6 +6,7 @@ type IndexEngine interface {
 	DropIndex(collectionName, fieldName string) error
 	FindByIndex(collectionName, fieldName string, value interface{}) ([]Document, error)
 	GetIndexes(collectionName string) ([]string, error)
+	UpdateIndex(collectionName, fieldName string) error
 }
 
 // Index represents an index on a collection field

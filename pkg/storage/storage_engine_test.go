@@ -52,7 +52,7 @@ func TestNewStorageEngine(t *testing.T) {
 			assert.Equal(t, tt.expected.saveInterval, engine.saveInterval)
 			assert.NotNil(t, engine.cache)
 			assert.NotNil(t, engine.collections)
-			assert.NotNil(t, engine.indexes)
+			assert.NotNil(t, engine.indexEngine)
 			assert.NotNil(t, engine.metadata)
 			assert.NotNil(t, engine.stopChan)
 		})
@@ -71,7 +71,7 @@ func TestStorageEngine_InsertAndFind(t *testing.T) {
 	err = engine.Insert("users", doc2)
 	require.NoError(t, err)
 
-	docs, err := engine.FindAll("users")
+	docs, err := engine.FindAll("users", nil)
 	require.NoError(t, err)
 	assert.Len(t, docs, 2)
 
@@ -278,7 +278,7 @@ func TestStorageEngine_Concurrency(t *testing.T) {
 	}
 
 	// Verify all documents were inserted
-	docs, err := engine.FindAll("concurrent")
+	docs, err := engine.FindAll("concurrent", nil)
 	require.NoError(t, err)
 	assert.Len(t, docs, numGoroutines*docsPerGoroutine)
 }
@@ -387,7 +387,7 @@ func TestStorageEngine_DeleteById(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify both documents exist
-	docs, err := engine.FindAll("users")
+	docs, err := engine.FindAll("users", nil)
 	require.NoError(t, err)
 	assert.Len(t, docs, 2)
 
@@ -396,7 +396,7 @@ func TestStorageEngine_DeleteById(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify document was deleted
-	docs, err = engine.FindAll("users")
+	docs, err = engine.FindAll("users", nil)
 	require.NoError(t, err)
 	assert.Len(t, docs, 1)
 	assert.Equal(t, "2", docs[0]["_id"])
@@ -412,7 +412,7 @@ func TestStorageEngine_DeleteById(t *testing.T) {
 	assert.Contains(t, err.Error(), "does not exist")
 }
 
-func TestStorageEngine_FindAllWithFilter(t *testing.T) {
+func TestStorageEngine_FindAll(t *testing.T) {
 	engine := NewStorageEngine()
 	defer engine.StopBackgroundWorkers()
 
@@ -430,7 +430,7 @@ func TestStorageEngine_FindAllWithFilter(t *testing.T) {
 	}
 
 	// Test single field filter
-	results, err := engine.FindAllWithFilter("users", map[string]interface{}{"age": 25})
+	results, err := engine.FindAll("users", map[string]interface{}{"age": 25})
 	require.NoError(t, err)
 	assert.Len(t, results, 2)
 
@@ -443,12 +443,12 @@ func TestStorageEngine_FindAllWithFilter(t *testing.T) {
 	assert.Contains(t, names, "Charlie")
 
 	// Test string filter (case-insensitive)
-	results, err = engine.FindAllWithFilter("users", map[string]interface{}{"city": "new york"})
+	results, err = engine.FindAll("users", map[string]interface{}{"city": "new york"})
 	require.NoError(t, err)
 	assert.Len(t, results, 2)
 
 	// Test multiple field filter
-	results, err = engine.FindAllWithFilter("users", map[string]interface{}{
+	results, err = engine.FindAll("users", map[string]interface{}{
 		"age":  25,
 		"city": "New York",
 	})
@@ -457,17 +457,17 @@ func TestStorageEngine_FindAllWithFilter(t *testing.T) {
 	assert.Equal(t, "Alice", results[0]["name"])
 
 	// Test non-existent field
-	results, err = engine.FindAllWithFilter("users", map[string]interface{}{"nonexistent": "value"})
+	results, err = engine.FindAll("users", map[string]interface{}{"nonexistent": "value"})
 	require.NoError(t, err)
 	assert.Len(t, results, 0)
 
 	// Test non-existent collection
-	_, err = engine.FindAllWithFilter("nonexistent", map[string]interface{}{"age": 25})
+	_, err = engine.FindAll("nonexistent", map[string]interface{}{"age": 25})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "does not exist")
 
 	// Test empty filter (should return all documents)
-	results, err = engine.FindAllWithFilter("users", map[string]interface{}{})
+	results, err = engine.FindAll("users", map[string]interface{}{})
 	require.NoError(t, err)
 	assert.Len(t, results, 4)
 }
@@ -489,16 +489,16 @@ func TestStorageEngine_FilterTypeHandling(t *testing.T) {
 	}
 
 	// Test int vs float64 comparison
-	results, err := engine.FindAllWithFilter("users", map[string]interface{}{"age": 25})
+	results, err := engine.FindAll("users", map[string]interface{}{"age": 25})
 	require.NoError(t, err)
 	assert.Len(t, results, 2) // Both 25 and 25.0 should match
 
-	results, err = engine.FindAllWithFilter("users", map[string]interface{}{"age": 25.0})
+	results, err = engine.FindAll("users", map[string]interface{}{"age": 25.0})
 	require.NoError(t, err)
 	assert.Len(t, results, 2) // Both 25 and 25.0 should match
 
 	// Test float vs int comparison - this might not work as expected due to type differences
-	results, err = engine.FindAllWithFilter("users", map[string]interface{}{"score": 100})
+	results, err = engine.FindAll("users", map[string]interface{}{"score": 100})
 	require.NoError(t, err)
 	// The exact count depends on how the type comparison works in the implementation
 	assert.GreaterOrEqual(t, len(results), 1)
@@ -515,11 +515,11 @@ func TestStorageEngine_FilterTypeHandling(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	results, err = engine.FindAllWithFilter("users", map[string]interface{}{"name": "alice"})
+	results, err = engine.FindAll("users", map[string]interface{}{"name": "alice"})
 	require.NoError(t, err)
 	assert.Len(t, results, 2) // Both "Alice" and "alice" should match
 
-	results, err = engine.FindAllWithFilter("users", map[string]interface{}{"city": "new york"})
+	results, err = engine.FindAll("users", map[string]interface{}{"city": "new york"})
 	require.NoError(t, err)
 	assert.Len(t, results, 2) // Both "New York" and "NEW YORK" should match
 }

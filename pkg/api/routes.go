@@ -18,5 +18,8 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	// Find with optional filtering (query parameters)
 	router.HandleFunc("/collections/{coll}/find", h.HandleFindWithFilter).Methods("GET")
 
+	// Index operations
+	router.HandleFunc("/collections/{coll}/indexes/{field}", h.HandleCreateIndex).Methods("POST")
+
 	// Add more routes as needed
 }

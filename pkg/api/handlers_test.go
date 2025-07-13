@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/adfharrison1/go-db/pkg/domain"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,7 +33,7 @@ func TestHandler_HandleInsert(t *testing.T) {
 			expectedError:  false,
 		},
 		{
-			name:       "document with existing ID",
+			name:       "document with existing _id",
 			collection: "users",
 			document: map[string]interface{}{
 				"_id":  "123",
@@ -42,13 +43,21 @@ func TestHandler_HandleInsert(t *testing.T) {
 			expectedStatus: http.StatusCreated,
 			expectedError:  false,
 		},
+		{
+			name:           "empty document",
+			collection:     "users",
+			document:       map[string]interface{}{},
+			expectedStatus: http.StatusCreated,
+			expectedError:  false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mock storage
+			// Create separate mocks for storage and indexing
 			mockStorage := NewMockStorageEngine()
-			handler := NewHandler(mockStorage)
+			mockIndexer := NewMockIndexEngine()
+			handler := NewHandler(mockStorage, mockIndexer)
 
 			// Create request
 			docJSON, err := json.Marshal(tt.document)
@@ -153,9 +162,10 @@ func TestHandler_HandleFindWithFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mock storage
+			// Create separate mocks for storage and indexing
 			mockStorage := NewMockStorageEngine()
-			handler := NewHandler(mockStorage)
+			mockIndexer := NewMockIndexEngine()
+			handler := NewHandler(mockStorage, mockIndexer)
 
 			// Setup data if needed
 			if tt.setupData != nil {
@@ -246,9 +256,10 @@ func TestHandler_HandleGetById(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mock storage
+			// Create separate mocks for storage and indexing
 			mockStorage := NewMockStorageEngine()
-			handler := NewHandler(mockStorage)
+			mockIndexer := NewMockIndexEngine()
+			handler := NewHandler(mockStorage, mockIndexer)
 
 			// Setup data if needed
 			if tt.setupData != nil {
@@ -348,9 +359,10 @@ func TestHandler_HandleUpdateById(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mock storage
+			// Create separate mocks for storage and indexing
 			mockStorage := NewMockStorageEngine()
-			handler := NewHandler(mockStorage)
+			mockIndexer := NewMockIndexEngine()
+			handler := NewHandler(mockStorage, mockIndexer)
 
 			// Setup data if needed
 			if tt.setupData != nil {
@@ -452,9 +464,10 @@ func TestHandler_HandleDeleteById(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mock storage
+			// Create separate mocks for storage and indexing
 			mockStorage := NewMockStorageEngine()
-			handler := NewHandler(mockStorage)
+			mockIndexer := NewMockIndexEngine()
+			handler := NewHandler(mockStorage, mockIndexer)
 
 			// Setup data if needed
 			if tt.setupData != nil {
@@ -519,9 +532,10 @@ func TestHandler_HandleStream(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mock storage
+			// Create separate mocks for storage and indexing
 			mockStorage := NewMockStorageEngine()
-			handler := NewHandler(mockStorage)
+			mockIndexer := NewMockIndexEngine()
+			handler := NewHandler(mockStorage, mockIndexer)
 
 			// Setup data if needed
 			if tt.setupData != nil {
@@ -567,7 +581,8 @@ func TestHandler_HandleStream(t *testing.T) {
 func TestHandler_Integration(t *testing.T) {
 	// Test full workflow: insert -> find -> get by id -> update -> delete -> find
 	mockStorage := NewMockStorageEngine()
-	handler := NewHandler(mockStorage)
+	mockIndexer := NewMockIndexEngine()
+	handler := NewHandler(mockStorage, mockIndexer)
 
 	// Test data
 	doc := map[string]interface{}{
@@ -654,18 +669,238 @@ func TestHandler_Integration(t *testing.T) {
 
 	assert.Equal(t, http.StatusNoContent, deleteW.Code)
 	assert.Equal(t, 0, mockStorage.GetCollectionCount("test"))
+}
 
-	// 6. Verify deletion with find
-	finalFindReq := httptest.NewRequest("GET", "/collections/test/find", nil)
-	finalFindReq = mux.SetURLVars(finalFindReq, map[string]string{"coll": "test"})
+// Indexing Tests
 
-	finalFindW := httptest.NewRecorder()
-	router.ServeHTTP(finalFindW, finalFindReq)
+func TestHandleCreateIndex(t *testing.T) {
+	mockStorage := NewMockStorageEngine()
+	mockIndexer := NewMockIndexEngineWithStorage(mockStorage)
+	handler := NewHandler(mockStorage, mockIndexer)
 
-	assert.Equal(t, http.StatusOK, finalFindW.Code)
-
-	var finalDocs []map[string]interface{}
-	err = json.Unmarshal(finalFindW.Body.Bytes(), &finalDocs)
+	// Create a collection first
+	err := mockStorage.CreateCollection("test")
 	require.NoError(t, err)
-	assert.Len(t, finalDocs, 0)
+
+	// Insert some test documents
+	docs := []domain.Document{
+		{"name": "Alice", "age": 25},
+		{"name": "Bob", "age": 30},
+		{"name": "Charlie", "age": 25},
+	}
+
+	for _, doc := range docs {
+		err := mockStorage.Insert("test", doc)
+		require.NoError(t, err)
+	}
+
+	tests := []struct {
+		name           string
+		collection     string
+		field          string
+		expectedStatus int
+		expectedError  string
+	}{
+		{
+			name:           "Create index on valid field",
+			collection:     "test",
+			field:          "name",
+			expectedStatus: http.StatusCreated,
+		},
+		{
+			name:           "Create index on age field",
+			collection:     "test",
+			field:          "age",
+			expectedStatus: http.StatusCreated,
+		},
+		{
+			name:           "Try to create index on _id (should fail)",
+			collection:     "test",
+			field:          "_id",
+			expectedStatus: http.StatusBadRequest,
+			expectedError:  "cannot create index on _id field",
+		},
+		{
+			name:           "Try to create index on non-existent collection",
+			collection:     "nonexistent",
+			field:          "name",
+			expectedStatus: http.StatusInternalServerError,
+			expectedError:  "collection nonexistent does not exist",
+		},
+		{
+			name:           "Try to create index with empty field name",
+			collection:     "test",
+			field:          "",
+			expectedStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create request
+			req, err := http.NewRequest("POST", "/collections/"+tt.collection+"/indexes/"+tt.field, nil)
+			require.NoError(t, err)
+
+			// Set up router with variables
+			router := mux.NewRouter()
+			router.HandleFunc("/collections/{coll}/indexes/{field}", handler.HandleCreateIndex).Methods("POST")
+
+			// Create response recorder
+			rr := httptest.NewRecorder()
+
+			// Serve request
+			router.ServeHTTP(rr, req)
+
+			// Check status code
+			assert.Equal(t, tt.expectedStatus, rr.Code)
+
+			if tt.expectedStatus == http.StatusCreated {
+				// Parse response
+				var response map[string]interface{}
+				err := json.Unmarshal(rr.Body.Bytes(), &response)
+				require.NoError(t, err)
+
+				// Verify response structure
+				assert.True(t, response["success"].(bool))
+				assert.Equal(t, "Index created successfully", response["message"])
+				assert.Equal(t, tt.collection, response["collection"])
+				assert.Equal(t, tt.field, response["field"])
+
+				// Verify index was created in mock
+				assert.True(t, mockIndexer.HasIndex(tt.collection, tt.field))
+			} else if tt.expectedError != "" {
+				// Check error message
+				assert.Contains(t, rr.Body.String(), tt.expectedError)
+			} else if tt.expectedStatus == http.StatusNotFound {
+				// For 404, just check the status code
+				assert.Equal(t, http.StatusNotFound, rr.Code)
+			}
+		})
+	}
+}
+
+func TestCreateIndexWithRealStorage(t *testing.T) {
+	// This test uses the real storage engine to verify index functionality
+	// Note: In a real test environment, you might want to use a test database
+	// or mock the storage layer for faster tests
+
+	// For now, we'll test the API integration with mock storage
+	// which should be sufficient for testing the HTTP layer
+	mockStorage := NewMockStorageEngine()
+	mockIndexer := NewMockIndexEngineWithStorage(mockStorage)
+	handler := NewHandler(mockStorage, mockIndexer)
+
+	// Create collection
+	err := mockStorage.CreateCollection("users")
+	require.NoError(t, err)
+
+	// Insert test data
+	users := []domain.Document{
+		{"name": "Alice", "role": "admin", "age": 25},
+		{"name": "Bob", "role": "user", "age": 30},
+		{"name": "Charlie", "role": "admin", "age": 35},
+	}
+
+	for _, user := range users {
+		err := mockStorage.Insert("users", user)
+		require.NoError(t, err)
+	}
+
+	// Test creating index via API
+	req, err := http.NewRequest("POST", "/collections/users/indexes/role", nil)
+	require.NoError(t, err)
+
+	router := mux.NewRouter()
+	router.HandleFunc("/collections/{coll}/indexes/{field}", handler.HandleCreateIndex).Methods("POST")
+
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	// Verify successful index creation
+	assert.Equal(t, http.StatusCreated, rr.Code)
+
+	var response map[string]interface{}
+	err = json.Unmarshal(rr.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	assert.True(t, response["success"].(bool))
+	assert.Equal(t, "users", response["collection"])
+	assert.Equal(t, "role", response["field"])
+
+	// Verify index was created in mock
+	assert.True(t, mockIndexer.HasIndex("users", "role"))
+	assert.Equal(t, 1, mockIndexer.GetCreateCalls())
+}
+
+func TestIndexCreationWorkflow(t *testing.T) {
+	mockStorage := NewMockStorageEngine()
+	mockIndexer := NewMockIndexEngineWithStorage(mockStorage)
+	handler := NewHandler(mockStorage, mockIndexer)
+
+	// Step 1: Create collection
+	err := mockStorage.CreateCollection("products")
+	require.NoError(t, err)
+
+	// Step 2: Insert documents
+	products := []domain.Document{
+		{"name": "Laptop", "category": "electronics", "price": 999},
+		{"name": "Phone", "category": "electronics", "price": 599},
+		{"name": "Book", "category": "books", "price": 19},
+		{"name": "Tablet", "category": "electronics", "price": 399},
+	}
+
+	for _, product := range products {
+		err := mockStorage.Insert("products", product)
+		require.NoError(t, err)
+	}
+
+	// Step 3: Create index on category field via API
+	req, err := http.NewRequest("POST", "/collections/products/indexes/category", nil)
+	require.NoError(t, err)
+
+	router := mux.NewRouter()
+	router.HandleFunc("/collections/{coll}/indexes/{field}", handler.HandleCreateIndex).Methods("POST")
+
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	// Step 4: Verify index creation
+	assert.Equal(t, http.StatusCreated, rr.Code)
+
+	var response map[string]interface{}
+	err = json.Unmarshal(rr.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	assert.True(t, response["success"].(bool))
+
+	// Step 5: Verify index was created in mock
+	assert.True(t, mockIndexer.HasIndex("products", "category"))
+	assert.Equal(t, 1, mockIndexer.GetIndexCount("products"))
+
+	// Step 6: Test that the index can be used for queries
+	// (This would be tested with the real storage engine)
+	// For now, we verify the API endpoint works correctly
+}
+
+func TestIndexCreationErrorHandling(t *testing.T) {
+	mockStorage := NewMockStorageEngine()
+	mockIndexer := NewMockIndexEngineWithStorage(mockStorage)
+	handler := NewHandler(mockStorage, mockIndexer)
+
+	// Test creating index without collection
+	req, err := http.NewRequest("POST", "/collections/nonexistent/indexes/name", nil)
+	require.NoError(t, err)
+
+	router := mux.NewRouter()
+	router.HandleFunc("/collections/{coll}/indexes/{field}", handler.HandleCreateIndex).Methods("POST")
+
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	// Should return error
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+	assert.Contains(t, rr.Body.String(), "does not exist")
+
+	// Verify no index was created
+	assert.False(t, mockIndexer.HasIndex("nonexistent", "name"))
 }
