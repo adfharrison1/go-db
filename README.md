@@ -28,6 +28,33 @@ go run cmd/go-db.go
 
 The server will start on `:8080` and automatically load/save data to `go-db_data.godb`.
 
+## Testing
+
+Run all tests:
+
+```bash
+go test ./...
+```
+
+Run tests with verbose output:
+
+```bash
+go test ./... -v
+```
+
+Run specific test packages:
+
+```bash
+go test ./pkg/storage/... -v
+go test ./pkg/server/... -v
+```
+
+Run benchmarks:
+
+```bash
+go test ./pkg/storage/... -bench=.
+```
+
 ## API Endpoints
 
 - `POST /collections/{name}/insert` - Insert a document
