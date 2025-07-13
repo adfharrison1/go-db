@@ -3,7 +3,6 @@ package storage
 import (
 	"fmt"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 
@@ -128,47 +127,15 @@ func (se *StorageEngine) Insert(collName string, doc domain.Document) error {
 // FindAll returns documents that match the given filter criteria
 // If filter is nil or empty, returns all documents
 func (se *StorageEngine) FindAll(collName string, filter map[string]interface{}) ([]domain.Document, error) {
-	se.mu.RLock()
-	defer se.mu.RUnlock()
-
-	// Try to use index optimization first
-	if len(filter) > 0 {
-		return se.findWithIndexOptimization(collName, filter)
-	}
-
-	// Use shared logic for document processing
-	collection, err := se.findDocumentsInternal(collName, filter)
+	docChan, err := se.docGenerator(collName, filter)
 	if err != nil {
 		return nil, err
 	}
-
 	var results []domain.Document
-	for _, doc := range collection.Documents {
-		if len(filter) == 0 || matchesFilter(doc, filter) {
-			results = append(results, doc)
-		}
+	for doc := range docChan {
+		results = append(results, doc)
 	}
-
 	return results, nil
-}
-
-// findDocumentsInternal is a shared method that processes documents with optional filtering
-// It can be used by both FindAll and FindAllStream to avoid code duplication
-func (se *StorageEngine) findDocumentsInternal(collName string, filter map[string]interface{}) (*domain.Collection, error) {
-	// Try to use index optimization first
-	if len(filter) > 0 {
-		// For now, index optimization returns a slice, so we need to handle this differently
-		// TODO: Consider making index optimization work with streaming too
-		return nil, fmt.Errorf("index optimization not yet supported for streaming")
-	}
-
-	// No filter or no suitable index, fall back to full scan
-	collection, err := se.getCollectionInternal(collName)
-	if err != nil {
-		return nil, err
-	}
-
-	return collection, nil
 }
 
 // GetMemoryStats returns current memory usage statistics
@@ -338,73 +305,6 @@ func (se *StorageEngine) DeleteById(collName, docId string) error {
 	return nil
 }
 
-// matchesFilter checks if a document matches the given filter criteria
-func matchesFilter(doc domain.Document, filter map[string]interface{}) bool {
-	for field, expectedValue := range filter {
-		actualValue, exists := doc[field]
-		if !exists {
-			return false // Field doesn't exist in document
-		}
-
-		if !valuesMatch(actualValue, expectedValue) {
-			return false // Values don't match
-		}
-	}
-	return true // All filter criteria match
-}
-
-// valuesMatch compares two values for equality, handling different types
-func valuesMatch(actual, expected interface{}) bool {
-	// Handle nil values
-	if actual == nil && expected == nil {
-		return true
-	}
-	if actual == nil || expected == nil {
-		return false
-	}
-
-	// Handle string comparison (case-insensitive for better UX)
-	if actualStr, ok1 := actual.(string); ok1 {
-		if expectedStr, ok2 := expected.(string); ok2 {
-			return strings.EqualFold(actualStr, expectedStr)
-		}
-	}
-
-	// Handle numeric comparison
-	if actualNum, ok1 := toFloat64(actual); ok1 {
-		if expectedNum, ok2 := toFloat64(expected); ok2 {
-			return actualNum == expectedNum
-		}
-	}
-
-	// Default to direct comparison
-	return actual == expected
-}
-
-// toFloat64 converts various numeric types to float64 for comparison
-func toFloat64(value interface{}) (float64, bool) {
-	switch v := value.(type) {
-	case float64:
-		return v, true
-	case float32:
-		return float64(v), true
-	case int:
-		return float64(v), true
-	case int32:
-		return float64(v), true
-	case int64:
-		return float64(v), true
-	case uint:
-		return float64(v), true
-	case uint32:
-		return float64(v), true
-	case uint64:
-		return float64(v), true
-	default:
-		return 0, false
-	}
-}
-
 // CreateIndex creates an index on a specific field in a collection
 func (se *StorageEngine) CreateIndex(collName, fieldName string) error {
 	se.mu.Lock()
@@ -468,9 +368,7 @@ func (se *StorageEngine) UpdateIndex(collName, fieldName string) error {
 
 // getIndex returns an index for a specific field in a collection
 func (se *StorageEngine) getIndex(collName, fieldName string) (*indexing.Index, bool) {
-	// This method is now handled by the index engine
-	// For now, return nil as the index engine handles this internally
-	return nil, false
+	return se.indexEngine.GetIndex(collName, fieldName)
 }
 
 // updateIndexes updates all indexes for a collection when a document changes
@@ -478,43 +376,49 @@ func (se *StorageEngine) updateIndexes(collName, docID string, oldDoc, newDoc do
 	se.indexEngine.UpdateIndexForDocument(collName, docID, oldDoc, newDoc)
 }
 
-// findWithIndexOptimization attempts to use indexes for faster queries
-func (se *StorageEngine) findWithIndexOptimization(collName string, filter map[string]interface{}) ([]domain.Document, error) {
+// docGenerator yields matching documents for a given filter, using index optimization if possible.
+func (se *StorageEngine) docGenerator(collName string, filter map[string]interface{}) (<-chan domain.Document, error) {
+	out := make(chan domain.Document, 100)
+
+	se.mu.RLock()
 	collection, err := se.getCollectionInternal(collName)
+	se.mu.RUnlock()
 	if err != nil {
+		close(out)
 		return nil, err
 	}
 
-	// If we have an index on the first filter field, use it for optimization
-	for fieldName, expectedValue := range filter {
-		if index, exists := se.getIndex(collName, fieldName); exists {
-			// Use index to get candidate document IDs
-			candidateIDs := index.Query(expectedValue)
+	go func() {
+		defer close(out)
+		var candidateIDs []string
+		var useIndex bool
 
-			// If we have candidates, filter them further
-			if len(candidateIDs) > 0 {
-				var results []domain.Document
-				for _, docID := range candidateIDs {
-					if doc, exists := collection.Documents[docID]; exists {
-						// Apply full filter to ensure all conditions are met
-						if matchesFilter(doc, filter) {
-							results = append(results, doc)
-						}
+		// Try to use index optimization if filter is present
+		if len(filter) > 0 {
+			for fieldName, expectedValue := range filter {
+				if index, exists := se.getIndex(collName, fieldName); exists {
+					candidateIDs = index.Query(expectedValue)
+					useIndex = true
+					break // Only use the first available index
+				}
+			}
+		}
+
+		if useIndex {
+			for _, docID := range candidateIDs {
+				if doc, exists := collection.Documents[docID]; exists {
+					if MatchesFilter(doc, filter) {
+						out <- doc
 					}
 				}
-				return results, nil
 			}
-			// If no candidates found, return empty result
-			return []domain.Document{}, nil
+		} else {
+			for _, doc := range collection.Documents {
+				if len(filter) == 0 || MatchesFilter(doc, filter) {
+					out <- doc
+				}
+			}
 		}
-	}
-
-	// No suitable index found, fall back to full collection scan
-	var results []domain.Document
-	for _, doc := range collection.Documents {
-		if matchesFilter(doc, filter) {
-			results = append(results, doc)
-		}
-	}
-	return results, nil
+	}()
+	return out, nil
 }
