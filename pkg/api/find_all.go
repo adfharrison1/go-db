@@ -9,12 +9,12 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// HandleFindWithFilter handles GET requests to find documents with filter criteria
-func (h *Handler) HandleFindWithFilter(w http.ResponseWriter, r *http.Request) {
+// HandleFindAll handles GET requests to find documents with filter criteria
+func (h *Handler) HandleFindAll(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	collName := vars["coll"]
 
-	log.Printf("INFO: handleFindWithFilter called for collection '%s'", collName)
+	log.Printf("INFO: handleFindAll called for collection '%s'", collName)
 
 	// Parse query parameters to build filter
 	filter := make(map[string]interface{})

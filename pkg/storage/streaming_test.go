@@ -28,7 +28,7 @@ func TestStorageEngine_FindAllStream_Basic(t *testing.T) {
 	}
 
 	// Test streaming
-	docChan, err := engine.FindAllStream("users")
+	docChan, err := engine.FindAllStream("users", nil)
 	require.NoError(t, err)
 
 	// Collect all documents from the stream
@@ -62,7 +62,7 @@ func TestStorageEngine_FindAllStream_EmptyCollection(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test streaming empty collection
-	docChan, err := engine.FindAllStream("empty")
+	docChan, err := engine.FindAllStream("empty", nil)
 	require.NoError(t, err)
 
 	// Should receive no documents
@@ -79,7 +79,7 @@ func TestStorageEngine_FindAllStream_NonExistentCollection(t *testing.T) {
 	defer engine.StopBackgroundWorkers()
 
 	// Try to stream non-existent collection
-	_, err := engine.FindAllStream("nonexistent")
+	_, err := engine.FindAllStream("nonexistent", nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "does not exist")
 }
@@ -102,7 +102,7 @@ func TestStorageEngine_FindAllStream_LargeDataset(t *testing.T) {
 	}
 
 	// Test streaming large dataset
-	docChan, err := engine.FindAllStream("large_collection")
+	docChan, err := engine.FindAllStream("large_collection", nil)
 	require.NoError(t, err)
 
 	// Collect all documents
@@ -144,7 +144,7 @@ func TestStorageEngine_FindAllStream_ConcurrentStreaming(t *testing.T) {
 		go func(streamID int) {
 			defer wg.Done()
 
-			docChan, err := engine.FindAllStream("concurrent")
+			docChan, err := engine.FindAllStream("concurrent", nil)
 			require.NoError(t, err)
 
 			docs := make([]domain.Document, 0)
@@ -181,7 +181,7 @@ func TestStorageEngine_FindAllStream_ChannelBuffer(t *testing.T) {
 	}
 
 	// Test streaming
-	docChan, err := engine.FindAllStream("buffer_test")
+	docChan, err := engine.FindAllStream("buffer_test", nil)
 	require.NoError(t, err)
 
 	// Verify channel has reasonable buffer size
@@ -218,7 +218,7 @@ func TestStorageEngine_FindAllStream_ShutdownHandling(t *testing.T) {
 	}
 
 	// Start streaming
-	docChan, err := engine.FindAllStream("shutdown_test")
+	docChan, err := engine.FindAllStream("shutdown_test", nil)
 	require.NoError(t, err)
 
 	// Read a few documents
@@ -273,7 +273,7 @@ func TestStorageEngine_FindAllStream_DocumentModification(t *testing.T) {
 	}
 
 	// Start streaming
-	docChan, err := engine.FindAllStream("modify_test")
+	docChan, err := engine.FindAllStream("modify_test", nil)
 	require.NoError(t, err)
 
 	// Modify documents while streaming (this should not affect the stream)
@@ -323,7 +323,7 @@ func TestStorageEngine_FindAllStream_Performance(t *testing.T) {
 
 	// Benchmark streaming performance
 	start := time.Now()
-	docChan, err := engine.FindAllStream("perf_test")
+	docChan, err := engine.FindAllStream("perf_test", nil)
 	require.NoError(t, err)
 
 	docCount := 0

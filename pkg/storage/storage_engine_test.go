@@ -144,7 +144,7 @@ func TestStorageEngine_Streaming(t *testing.T) {
 	}
 
 	// Test streaming
-	docChan, err := engine.FindAllStream("users")
+	docChan, err := engine.FindAllStream("users", nil)
 	require.NoError(t, err)
 
 	receivedDocs := make([]domain.Document, 0)

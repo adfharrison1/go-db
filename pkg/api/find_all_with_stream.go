@@ -8,12 +8,12 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// HandleStream handles GET requests to stream documents from collections
-func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
+// HandleFindAllWithStream handles GET requests to stream documents from collections
+func (h *Handler) HandleFindAllWithStream(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	collName := vars["coll"]
 
-	log.Printf("INFO: handleStream called for collection '%s'", collName)
+	log.Printf("INFO: handleFindAllWithStream called for collection '%s'", collName)
 
 	// Set headers for streaming
 	w.Header().Set("Content-Type", "application/json")
@@ -21,8 +21,16 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	// Parse query parameters for filtering
+	filter := make(map[string]interface{})
+	for key, values := range r.URL.Query() {
+		if len(values) > 0 {
+			filter[key] = values[0] // Take the first value for each key
+		}
+	}
+
 	// Get document stream from storage engine
-	docChan, err := h.storage.FindAllStream(collName)
+	docChan, err := h.storage.FindAllStream(collName, filter)
 	if err != nil {
 		log.Printf("ERROR: Collection '%s' not found: %v", collName, err)
 		http.Error(w, err.Error(), http.StatusNotFound)

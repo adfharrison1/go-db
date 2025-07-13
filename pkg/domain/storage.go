@@ -5,7 +5,7 @@ package domain
 type StorageEngine interface {
 	Insert(collName string, doc Document) error
 	FindAll(collName string, filter map[string]interface{}) ([]Document, error)
-	FindAllStream(collName string) (<-chan Document, error)
+	FindAllStream(collName string, filter map[string]interface{}) (<-chan Document, error)
 	GetById(collName, docId string) (Document, error)
 	UpdateById(collName, docId string, updates Document) error
 	DeleteById(collName, docId string) error

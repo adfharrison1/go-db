@@ -136,8 +136,8 @@ func (se *StorageEngine) FindAll(collName string, filter map[string]interface{})
 		return se.findWithIndexOptimization(collName, filter)
 	}
 
-	// No filter or no suitable index, fall back to full scan
-	collection, err := se.getCollectionInternal(collName)
+	// Use shared logic for document processing
+	collection, err := se.findDocumentsInternal(collName, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -150,6 +150,25 @@ func (se *StorageEngine) FindAll(collName string, filter map[string]interface{})
 	}
 
 	return results, nil
+}
+
+// findDocumentsInternal is a shared method that processes documents with optional filtering
+// It can be used by both FindAll and FindAllStream to avoid code duplication
+func (se *StorageEngine) findDocumentsInternal(collName string, filter map[string]interface{}) (*domain.Collection, error) {
+	// Try to use index optimization first
+	if len(filter) > 0 {
+		// For now, index optimization returns a slice, so we need to handle this differently
+		// TODO: Consider making index optimization work with streaming too
+		return nil, fmt.Errorf("index optimization not yet supported for streaming")
+	}
+
+	// No filter or no suitable index, fall back to full scan
+	collection, err := se.getCollectionInternal(collName)
+	if err != nil {
+		return nil, err
+	}
+
+	return collection, nil
 }
 
 // GetMemoryStats returns current memory usage statistics

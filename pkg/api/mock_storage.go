@@ -84,7 +84,7 @@ func (m *MockStorageEngine) FindAll(collName string, filter map[string]interface
 }
 
 // FindAllStream streams documents from a collection
-func (m *MockStorageEngine) FindAllStream(collName string) (<-chan domain.Document, error) {
+func (m *MockStorageEngine) FindAllStream(collName string, filter map[string]interface{}) (<-chan domain.Document, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 

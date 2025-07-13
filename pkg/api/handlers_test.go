@@ -88,7 +88,7 @@ func TestHandler_HandleInsert(t *testing.T) {
 	}
 }
 
-func TestHandler_HandleFindWithFilter(t *testing.T) {
+func TestHandler_HandleFindAll(t *testing.T) {
 	tests := []struct {
 		name           string
 		collection     string
@@ -180,7 +180,7 @@ func TestHandler_HandleFindWithFilter(t *testing.T) {
 
 			// Set up router with vars
 			router := mux.NewRouter()
-			router.HandleFunc("/collections/{coll}/find", handler.HandleFindWithFilter).Methods("GET")
+			router.HandleFunc("/collections/{coll}/find", handler.HandleFindAll).Methods("GET")
 			req = mux.SetURLVars(req, map[string]string{"coll": tt.collection})
 
 			// Create response recorder
@@ -502,7 +502,7 @@ func TestHandler_HandleDeleteById(t *testing.T) {
 	}
 }
 
-func TestHandler_HandleStream(t *testing.T) {
+func TestHandler_HandleFindAllWithStream(t *testing.T) {
 	tests := []struct {
 		name           string
 		collection     string
@@ -546,11 +546,11 @@ func TestHandler_HandleStream(t *testing.T) {
 			}
 
 			// Create request
-			req := httptest.NewRequest("GET", "/collections/"+tt.collection+"/stream", nil)
+			req := httptest.NewRequest("GET", "/collections/"+tt.collection+"/find_with_stream", nil)
 
 			// Set up router with vars
 			router := mux.NewRouter()
-			router.HandleFunc("/collections/{coll}/stream", handler.HandleStream).Methods("GET")
+			router.HandleFunc("/collections/{coll}/find_with_stream", handler.HandleFindAllWithStream).Methods("GET")
 			req = mux.SetURLVars(req, map[string]string{"coll": tt.collection})
 
 			// Create response recorder
@@ -611,7 +611,7 @@ func TestHandler_Integration(t *testing.T) {
 	findReq = mux.SetURLVars(findReq, map[string]string{"coll": "test"})
 
 	findW := httptest.NewRecorder()
-	router.HandleFunc("/collections/{coll}/find", handler.HandleFindWithFilter).Methods("GET")
+	router.HandleFunc("/collections/{coll}/find", handler.HandleFindAll).Methods("GET")
 	router.ServeHTTP(findW, findReq)
 
 	assert.Equal(t, http.StatusOK, findW.Code)

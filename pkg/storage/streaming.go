@@ -4,10 +4,11 @@ import (
 	"github.com/adfharrison1/go-db/pkg/domain"
 )
 
-// FindAllStream streams all documents in a collection
-func (se *StorageEngine) FindAllStream(collName string) (<-chan domain.Document, error) {
+// FindAllStream streams documents in a collection that match the given filter criteria
+// If filter is nil or empty, streams all documents
+func (se *StorageEngine) FindAllStream(collName string, filter map[string]interface{}) (<-chan domain.Document, error) {
 	se.mu.RLock()
-	collection, err := se.getCollectionInternal(collName)
+	collection, err := se.findDocumentsInternal(collName, filter)
 	se.mu.RUnlock()
 	if err != nil {
 		return nil, err
@@ -17,6 +18,11 @@ func (se *StorageEngine) FindAllStream(collName string) (<-chan domain.Document,
 	go func() {
 		defer close(docChan)
 		for _, doc := range collection.Documents {
+			// Apply filter if provided
+			if len(filter) > 0 && !matchesFilter(doc, filter) {
+				continue
+			}
+
 			select {
 			case docChan <- doc:
 				// Document sent
