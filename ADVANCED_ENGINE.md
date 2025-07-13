@@ -66,10 +66,10 @@ The Storage Engine is a sophisticated database engine that implements proper mem
 │  │ (format.go) │  │(persistence)│  │(streaming.go)│        │
 │  └─────────────┘  └─────────────┘  └─────────────┘        │
 │                                                             │
-│  ┌─────────────┐                                            │
-│  │ IndexEngine │  # Embedded for internal use               │
-│  │ (indexing)  │                                            │
-│  └─────────────┘                                            │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
+│  │ IndexEngine │  │ ID Counters │  │ Documents   │        │
+│  │ (indexing)  │  │(per-collection)│(documents.go)│        │
+│  └─────────────┘  └─────────────┘  └─────────────┘        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -114,6 +114,7 @@ pkg/
 │   ├── storage.go          # Main engine with core logic
 │   ├── lru.go              # LRU cache implementation
 │   ├── collection.go       # Collection management
+│   ├── documents.go        # Document operations & ID generation
 │   ├── options.go          # Configuration options
 │   ├── format.go           # Binary format (MessagePack + LZ4)
 │   ├── streaming.go        # Streaming functionality
@@ -227,6 +228,131 @@ for doc := range docChan {
     processDocument(doc)
 }
 ```
+
+### Document ID Generation
+
+The storage engine implements a sophisticated **per-collection ID generation system** that ensures unique, thread-safe document identifiers across concurrent operations.
+
+#### Design Philosophy
+
+**Why Per-Collection IDs?**
+
+Unlike traditional databases that use a single global counter, our engine maintains separate ID sequences for each collection. This design provides several critical advantages:
+
+1. **Eliminates Race Conditions**: No interference between collections during concurrent operations
+2. **Realistic Database Behavior**: Each collection maintains its own identity space
+3. **Test Isolation**: Tests can run concurrently without affecting each other
+4. **Scalability**: Collections can be distributed or sharded independently
+5. **Performance**: Atomic operations are localized to specific collections
+
+#### Implementation Details
+
+```go
+type StorageEngine struct {
+    // ... other fields ...
+
+    // Per-collection ID counters for thread-safe ID generation
+    idCounters map[string]*int64
+    idCountersMu sync.RWMutex
+}
+```
+
+**ID Generation Process:**
+
+```go
+// Generate unique ID using per-collection atomic counter (thread-safe)
+se.idCountersMu.Lock()
+counter, exists := se.idCounters[collName]
+if !exists {
+    var initialCounter int64 = 0
+    counter = &initialCounter
+    se.idCounters[collName] = counter
+}
+se.idCountersMu.Unlock()
+
+id := atomic.AddInt64(counter, 1)
+newID := fmt.Sprintf("%d", id)
+doc["_id"] = newID
+```
+
+#### Thread Safety Mechanisms
+
+1. **Atomic Operations**: Uses `atomic.AddInt64()` for lock-free ID increment
+2. **Mutex Protection**: `sync.RWMutex` protects the counters map during initialization
+3. **Lazy Initialization**: Counters are created only when collections are first used
+4. **Memory Efficiency**: Unused collections don't consume counter memory
+
+#### ID Characteristics
+
+- **Format**: String representation of sequential integers
+- **Uniqueness**: Guaranteed within each collection
+- **Sequential**: IDs are monotonically increasing (1, 2, 3, ...)
+- **Thread-Safe**: Concurrent inserts never produce duplicate IDs
+- **Collection-Scoped**: Each collection starts from ID "1"
+
+#### Example ID Sequences
+
+```go
+// Collection "users" - IDs: "1", "2", "3", "4", "5"
+engine.Insert("users", doc1) // _id: "1"
+engine.Insert("users", doc2) // _id: "2"
+engine.Insert("users", doc3) // _id: "3"
+
+// Collection "products" - IDs: "1", "2", "3" (separate sequence)
+engine.Insert("products", prod1) // _id: "1"
+engine.Insert("products", prod2) // _id: "2"
+
+// Collection "orders" - IDs: "1", "2" (another separate sequence)
+engine.Insert("orders", order1) // _id: "1"
+engine.Insert("orders", order2) // _id: "2"
+```
+
+#### Concurrent Operation Example
+
+```go
+// Multiple goroutines inserting into different collections
+go func() {
+    for i := 0; i < 10; i++ {
+        engine.Insert("users", userDoc)
+    }
+}()
+
+go func() {
+    for i := 0; i < 10; i++ {
+        engine.Insert("products", productDoc)
+    }
+}()
+
+// Result: users collection gets IDs "1" through "10"
+//         products collection gets IDs "1" through "10"
+//         No race conditions, no duplicate IDs
+```
+
+#### Performance Characteristics
+
+- **Atomic Operations**: Hardware-level, non-blocking increments
+- **Memory Overhead**: ~8 bytes per collection (int64 pointer)
+- **Concurrency**: Supports unlimited concurrent inserts per collection
+- **Scalability**: Performance remains constant regardless of collection count
+
+#### Comparison with Global Counter
+
+| Aspect              | Global Counter | Per-Collection Counters  |
+| ------------------- | -------------- | ------------------------ |
+| **Race Conditions** | High risk      | Eliminated               |
+| **Test Isolation**  | Poor           | Excellent                |
+| **Realism**         | Unrealistic    | Database-like            |
+| **Memory Usage**    | Minimal        | Low (8 bytes/collection) |
+| **Concurrency**     | Limited        | Unlimited                |
+| **Scalability**     | Poor           | Excellent                |
+
+#### Best Practices
+
+1. **Collection Design**: Use meaningful collection names for better organization
+2. **ID Usage**: Don't rely on ID values for business logic (they're internal)
+3. **Concurrent Access**: The system handles concurrent inserts automatically
+4. **Testing**: Tests can run concurrently without interference
+5. **Monitoring**: Monitor collection growth for performance optimization
 
 ### Pagination Implementation
 
@@ -407,7 +533,8 @@ storage.WithBackgroundSave(5 * time.Minute)
 | ---------------------------- | --------------------------- | ------------ |
 | **Startup**                  | ~1MB (metadata only)        | Very Fast    |
 | **Collection Load**          | ~2-5MB per collection       | Fast         |
-| **Document Insert**          | Constant                    | Very Fast    |
+| **Document Insert**          | Constant + 8 bytes/coll     | Very Fast    |
+| **ID Generation**            | Atomic operations           | O(1)         |
 | **Document Find (no index)** | Full collection scan        | O(n)         |
 | **Document Find (indexed)**  | Index lookup only           | O(log n)     |
 | **Streaming**                | Constant (100 doc buffer)   | Very Fast    |
