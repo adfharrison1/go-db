@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/adfharrison1/go-db/pkg/data"
+	"github.com/adfharrison1/go-db/pkg/domain"
 	"github.com/pierrec/lz4/v4"
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -90,7 +90,7 @@ func (se *StorageEngine) LoadCollectionMetadata(filename string) error {
 }
 
 // loadCollectionFromDisk loads a single collection from disk
-func (se *StorageEngine) loadCollectionFromDisk(collName string) (*data.Collection, error) {
+func (se *StorageEngine) loadCollectionFromDisk(collName string) (*domain.Collection, error) {
 	filename := fmt.Sprintf("%s/collections/%s.godb", se.dataDir, collName)
 	file, err := os.Open(filename)
 	if err != nil {
@@ -119,10 +119,10 @@ func (se *StorageEngine) loadCollectionFromDisk(collName string) (*data.Collecti
 	if !exists {
 		return nil, fmt.Errorf("collection %s not found in file", collName)
 	}
-	collection := data.NewCollection(collName)
+	collection := domain.NewCollection(collName)
 	for docID, docData := range docs {
 		if doc, ok := docData.(map[string]interface{}); ok {
-			collection.Documents[docID] = data.Document(doc)
+			collection.Documents[docID] = domain.Document(doc)
 		}
 	}
 	return collection, nil

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 	"sync"
@@ -9,25 +8,31 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/adfharrison1/go-db/pkg/data"
+	"github.com/adfharrison1/go-db/pkg/api"
+	"github.com/adfharrison1/go-db/pkg/domain"
 	"github.com/adfharrison1/go-db/pkg/storage"
 )
 
 // Server holds references to storage, router, etc.
 type Server struct {
 	router   *mux.Router
-	dbEngine *storage.StorageEngine
+	dbEngine domain.StorageEngine
+	api      *api.Handler
 	mu       sync.RWMutex
 }
 
 // NewServer creates a new instance of Server.
 func NewServer() *Server {
+	dbEngine := storage.NewStorageEngine()
+
 	s := &Server{
 		router:   mux.NewRouter(),
-		dbEngine: storage.NewStorageEngine(),
+		dbEngine: dbEngine,
+		api:      api.NewHandler(dbEngine),
 	}
-	// Define HTTP routes
-	s.routes()
+
+	// Register API routes
+	s.api.RegisterRoutes(s.router)
 
 	// Use the logging middleware for all routes
 	s.router.Use(requestLoggerMiddleware)
@@ -72,54 +77,4 @@ func (s *Server) SaveDB(filename string) {
 // Router exposes the internal mux.Router.
 func (s *Server) Router() http.Handler {
 	return s.router
-}
-
-// routes defines all REST endpoints.
-func (s *Server) routes() {
-	s.router.HandleFunc("/collections/{coll}/insert", s.handleInsert).Methods("POST")
-	s.router.HandleFunc("/collections/{coll}/find", s.handleFind).Methods("GET")
-	// Add more routes as needed
-}
-
-// handleInsert is a simple example to insert a new document.
-func (s *Server) handleInsert(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	collName := vars["coll"]
-
-	log.Printf("INFO: handleInsert called for collection '%s'", collName)
-
-	var doc data.Document
-	if err := json.NewDecoder(r.Body).Decode(&doc); err != nil {
-		log.Printf("ERROR: Decoding body failed: %v", err)
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if err := s.dbEngine.Insert(collName, doc); err != nil {
-		log.Printf("ERROR: Insert failed for collection '%s': %v", collName, err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	log.Printf("INFO: Insert successful for collection '%s'", collName)
-	w.WriteHeader(http.StatusCreated)
-}
-
-// handleFind is a simplistic find (returns all documents for now).
-func (s *Server) handleFind(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	collName := vars["coll"]
-
-	log.Printf("INFO: handleFind called for collection '%s'", collName)
-
-	docs, err := s.dbEngine.FindAll(collName)
-	if err != nil {
-		log.Printf("ERROR: Collection '%s' not found: %v", collName, err)
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-
-	log.Printf("INFO: Found %d documents in collection '%s'", len(docs), collName)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(docs)
 }

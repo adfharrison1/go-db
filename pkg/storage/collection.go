@@ -3,7 +3,7 @@ package storage
 import (
 	"time"
 
-	"github.com/adfharrison1/go-db/pkg/data"
+	"github.com/adfharrison1/go-db/pkg/domain"
 )
 
 type CollectionState int
@@ -25,13 +25,13 @@ type CollectionInfo struct {
 	LastAccessed  time.Time
 }
 
-// Collection wraps data.Collection for storage-specific functionality
-type Collection = data.Collection
+// Collection wraps domain.Collection for storage-specific functionality
+type Collection = domain.Collection
 
-// Document wraps data.Document for storage-specific functionality
-type Document = data.Document
+// Document wraps domain.Document for storage-specific functionality
+type Document = domain.Document
 
 // NewCollection creates a new collection
 func NewCollection(name string) *Collection {
-	return data.NewCollection(name)
+	return domain.NewCollection(name)
 }

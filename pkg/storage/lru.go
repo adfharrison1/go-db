@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adfharrison1/go-db/pkg/data"
+	"github.com/adfharrison1/go-db/pkg/domain"
 )
 
 type LRUCache struct {
@@ -17,7 +17,7 @@ type LRUCache struct {
 
 type cacheEntry struct {
 	key   string
-	value *data.Collection
+	value *domain.Collection
 	info  *CollectionInfo
 }
 
@@ -29,7 +29,7 @@ func NewLRUCache(capacity int) *LRUCache {
 	}
 }
 
-func (lru *LRUCache) Get(key string) (*data.Collection, *CollectionInfo, bool) {
+func (lru *LRUCache) Get(key string) (*domain.Collection, *CollectionInfo, bool) {
 	lru.mu.Lock()
 	defer lru.mu.Unlock()
 
@@ -43,7 +43,7 @@ func (lru *LRUCache) Get(key string) (*data.Collection, *CollectionInfo, bool) {
 	return nil, nil, false
 }
 
-func (lru *LRUCache) Put(key string, collection *data.Collection, info *CollectionInfo) {
+func (lru *LRUCache) Put(key string, collection *domain.Collection, info *CollectionInfo) {
 	lru.mu.Lock()
 	defer lru.mu.Unlock()
 
