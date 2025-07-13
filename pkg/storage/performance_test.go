@@ -64,13 +64,13 @@ func TestIndexedVsNonIndexedPerformance(t *testing.T) {
 	t.Run("SingleField_IndexedVsNonIndexed", func(t *testing.T) {
 		// Query that will use index
 		start := time.Now()
-		indexedResults, err := engine.FindAll("users", map[string]interface{}{"age": 25})
+		indexedResults, err := engine.FindAll("users", map[string]interface{}{"age": 25}, nil)
 		indexedDuration := time.Since(start)
 		require.NoError(t, err)
 
 		// Query that won't use index (no index on name)
 		start = time.Now()
-		nonIndexedResults, err := engine.FindAll("users", map[string]interface{}{"name": "user25"})
+		nonIndexedResults, err := engine.FindAll("users", map[string]interface{}{"name": "user25"}, nil)
 		nonIndexedDuration := time.Since(start)
 		require.NoError(t, err)
 
@@ -94,19 +94,19 @@ func TestIndexedVsNonIndexedPerformance(t *testing.T) {
 		intersectionResults, err := engine.FindAll("users", map[string]interface{}{
 			"age":  25,
 			"city": "city25", // This should match users with id 25, 125, 225, etc.
-		})
+		}, nil)
 		intersectionDuration := time.Since(start)
 		require.NoError(t, err)
 
 		// Query using only one index (age only)
 		start = time.Now()
-		singleIndexResults, err := engine.FindAll("users", map[string]interface{}{"age": 25})
+		singleIndexResults, err := engine.FindAll("users", map[string]interface{}{"age": 25}, nil)
 		singleIndexDuration := time.Since(start)
 		require.NoError(t, err)
 
 		// Query without any index (name field)
 		start = time.Now()
-		nonIndexedResults, err := engine.FindAll("users", map[string]interface{}{"name": "user25"})
+		nonIndexedResults, err := engine.FindAll("users", map[string]interface{}{"name": "user25"}, nil)
 		nonIndexedDuration := time.Since(start)
 		require.NoError(t, err)
 
@@ -282,7 +282,7 @@ func BenchmarkIndexedQueries(b *testing.B) {
 
 	b.Run("SingleIndex", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_, err := engine.FindAll("users", map[string]interface{}{"age": 25})
+			_, err := engine.FindAll("users", map[string]interface{}{"age": 25}, nil)
 			require.NoError(b, err)
 		}
 	})
@@ -292,14 +292,14 @@ func BenchmarkIndexedQueries(b *testing.B) {
 			_, err := engine.FindAll("users", map[string]interface{}{
 				"age":  25,
 				"city": "city10",
-			})
+			}, nil)
 			require.NoError(b, err)
 		}
 	})
 
 	b.Run("NonIndexed", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_, err := engine.FindAll("users", map[string]interface{}{"name": "user25"})
+			_, err := engine.FindAll("users", map[string]interface{}{"name": "user25"}, nil)
 			require.NoError(b, err)
 		}
 	})

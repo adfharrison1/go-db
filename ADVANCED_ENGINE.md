@@ -21,6 +21,15 @@ The Storage Engine is a sophisticated database engine that implements proper mem
 - **Concurrent Streaming**: Multiple streams can operate simultaneously
 - **Filter Support**: Stream with optional filtering for targeted data retrieval
 
+### 📄 Pagination Support
+
+- **Dual Pagination Models**: Support for both offset/limit and cursor-based pagination
+- **Offset/Limit Pagination**: Traditional pagination with skip/limit for predictable navigation
+- **Cursor-Based Pagination**: Performance-optimized pagination using document IDs and timestamps
+- **Hybrid Response Format**: Unified response structure with pagination metadata
+- **Filter Integration**: Pagination works seamlessly with document filtering
+- **Index Optimization**: Pagination leverages existing indexes for optimal performance
+
 ### 🔄 Advanced Persistence
 
 - **Optimized Format**: MessagePack + LZ4 compression for speed and size
@@ -175,7 +184,32 @@ docs, err := engine.FindAll("users", filter)
 filter := map[string]interface{}{ "age": 25, "city": "Boston" }
 docs, err := engine.FindAll("users", filter)
 
-// Stream documents (memory efficient)
+// Find with pagination - offset/limit approach
+paginationOptions := &domain.PaginationOptions{
+    Limit:    10,
+    Offset:   20,
+    MaxLimit: 1000,
+}
+result, err := engine.FindAll("users", nil, paginationOptions)
+// result.Documents contains the paginated documents
+// result.HasNext indicates if there are more pages
+// result.Total contains the total count
+
+// Find with pagination - cursor-based approach
+cursorOptions := &domain.PaginationOptions{
+    Limit:    10,
+    After:    "eyJpZCI6IjEwIiwidGltZXN0YW1wIjoiMjAyNS0wNy0xM1QxOTo0NDoyMS4yNzc3ODkrMDE6MDAifQ==",
+    MaxLimit: 1000,
+}
+result, err := engine.FindAll("users", nil, cursorOptions)
+// result.NextCursor contains the cursor for the next page
+// result.PrevCursor contains the cursor for the previous page
+
+// Find with filter and pagination
+filter := map[string]interface{}{"age": 30}
+result, err := engine.FindAll("users", filter, paginationOptions)
+
+// Stream documents (memory efficient, no pagination)
 docChan, err := engine.FindAllStream("users", nil)
 if err != nil {
     return err
@@ -193,6 +227,140 @@ for doc := range docChan {
     processDocument(doc)
 }
 ```
+
+### Pagination Implementation
+
+The storage engine provides comprehensive pagination support with two distinct approaches:
+
+#### Pagination Options
+
+```go
+type PaginationOptions struct {
+    Limit     int    // Number of documents per page
+    Offset    int    // Skip N documents (offset-based pagination)
+    After     string // Cursor for next page (cursor-based pagination)
+    Before    string // Cursor for previous page (cursor-based pagination)
+    MaxLimit  int    // Maximum allowed limit
+}
+```
+
+#### Response Format
+
+```go
+type PaginationResult struct {
+    Documents   []Document // The actual documents
+    HasNext     bool       // Whether there are more pages
+    HasPrev     bool       // Whether there are previous pages
+    Total       int64      // Total number of documents (for offset pagination)
+    NextCursor  string     // Encoded cursor for next page
+    PrevCursor  string     // Encoded cursor for previous page
+}
+```
+
+#### Offset/Limit Pagination
+
+Traditional pagination using skip/limit approach:
+
+```go
+// First page
+options := &domain.PaginationOptions{
+    Limit:    10,
+    Offset:   0,
+    MaxLimit: 1000,
+}
+result, err := engine.FindAll("users", nil, options)
+
+// Second page
+options = &domain.PaginationOptions{
+    Limit:    10,
+    Offset:   10,
+    MaxLimit: 1000,
+}
+result, err := engine.FindAll("users", nil, options)
+```
+
+**Pros:**
+
+- Predictable navigation (can jump to any page)
+- Easy to implement in UI components
+- Familiar to developers
+
+**Cons:**
+
+- Performance degrades with large offsets
+- Can miss documents if collection changes between requests
+
+#### Cursor-Based Pagination
+
+Performance-optimized pagination using document identifiers:
+
+```go
+// First page
+options := &domain.PaginationOptions{
+    Limit:    10,
+    MaxLimit: 1000,
+}
+result, err := engine.FindAll("users", nil, options)
+
+// Next page using cursor
+options = &domain.PaginationOptions{
+    Limit:    10,
+    After:    result.NextCursor,
+    MaxLimit: 1000,
+}
+result, err := engine.FindAll("users", nil, options)
+
+// Previous page using cursor
+options = &domain.PaginationOptions{
+    Limit:    10,
+    Before:   result.PrevCursor,
+    MaxLimit: 1000,
+}
+result, err := engine.FindAll("users", nil, options)
+```
+
+**Pros:**
+
+- Consistent performance regardless of page number
+- Handles concurrent modifications gracefully
+- Better for real-time data
+
+**Cons:**
+
+- Cannot jump to arbitrary pages
+- Requires cursor management in client code
+
+#### Cursor Format
+
+Cursors are base64-encoded JSON containing document ID and timestamp:
+
+```json
+{
+  "id": "10",
+  "timestamp": "2025-07-13T19:44:21.277789+01:00"
+}
+```
+
+#### Best Practices
+
+1. **Choose the Right Approach:**
+
+   - Use **offset/limit** for admin interfaces, reports, or when you need random page access
+   - Use **cursor-based** for real-time feeds, infinite scroll, or high-performance scenarios
+
+2. **Limit Management:**
+
+   - Always set reasonable limits (default: 50, max: 1000)
+   - Use `MaxLimit` to prevent abuse
+
+3. **Filter Integration:**
+
+   - Pagination works seamlessly with document filters
+   - Indexes are automatically used when available
+
+4. **Streaming vs Pagination:**
+   - Use **FindAll** with pagination for controlled data retrieval
+   - Use **FindAllStream** for large datasets without pagination
 
 ### Memory Monitoring
 
@@ -235,15 +403,17 @@ storage.WithBackgroundSave(5 * time.Minute)
 
 ## Performance Characteristics
 
-### Memory Usage
-
-| Operation                   | Memory Impact              | Performance  |
-| --------------------------- | -------------------------- | ------------ |
-| **Startup**                 | ~1MB (metadata only)       | Very Fast    |
-| **First Collection Access** | Collection size            | Fast         |
-| **Streaming**               | Constant (~1KB per doc)    | Excellent    |
-| **LRU Eviction**            | Reduced by collection size | Fast         |
-| **Background Save**         | Minimal (async)            | Non-blocking |
+| Operation                    | Memory Impact               | Performance  |
+| ---------------------------- | --------------------------- | ------------ |
+| **Startup**                  | ~1MB (metadata only)        | Very Fast    |
+| **Collection Load**          | ~2-5MB per collection       | Fast         |
+| **Document Insert**          | Constant                    | Very Fast    |
+| **Document Find (no index)** | Full collection scan        | O(n)         |
+| **Document Find (indexed)**  | Index lookup only           | O(log n)     |
+| **Streaming**                | Constant (100 doc buffer)   | Very Fast    |
+| **Pagination (offset)**      | Full scan + skip            | O(n)         |
+| **Pagination (cursor)**      | Index-based navigation      | O(log n)     |
+| **Background Save**          | Minimal (dirty collections) | Non-blocking |
 
 ### Performance Benchmarks
 

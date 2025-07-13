@@ -73,28 +73,28 @@ func TestIndexOptimization(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test query using indexed field
-	results, err := engine.FindAll("users", map[string]interface{}{"role": "admin"})
+	results, err := engine.FindAll("users", map[string]interface{}{"role": "admin"}, nil)
 	assert.NoError(t, err)
-	assert.Len(t, results, 2)
+	assert.Len(t, results.Documents, 2)
 
 	// Verify results contain admin users
-	for _, result := range results {
+	for _, result := range results.Documents {
 		assert.Equal(t, "admin", result["role"])
 	}
 
 	// Test query using non-indexed field (should fall back to full scan)
-	results, err = engine.FindAll("users", map[string]interface{}{"age": 25})
+	results, err = engine.FindAll("users", map[string]interface{}{"age": 25}, nil)
 	assert.NoError(t, err)
-	assert.Len(t, results, 2)
+	assert.Len(t, results.Documents, 2)
 
 	// Test query with multiple conditions (one indexed, one not)
 	results, err = engine.FindAll("users", map[string]interface{}{
 		"role": "user",
 		"age":  30,
-	})
+	}, nil)
 	assert.NoError(t, err)
-	assert.Len(t, results, 1)
-	assert.Equal(t, "Bob", results[0]["name"])
+	assert.Len(t, results.Documents, 1)
+	assert.Equal(t, "Bob", results.Documents[0]["name"])
 }
 
 func TestIndexMaintenance(t *testing.T) {
@@ -120,31 +120,31 @@ func TestIndexMaintenance(t *testing.T) {
 	}
 
 	// Verify initial index state
-	results, err := engine.FindAll("products", map[string]interface{}{"category": "electronics"})
+	results, err := engine.FindAll("products", map[string]interface{}{"category": "electronics"}, nil)
 	assert.NoError(t, err)
-	assert.Len(t, results, 2)
+	assert.Len(t, results.Documents, 2)
 
 	// Update a document
 	err = engine.UpdateById("products", "1", domain.Document{"category": "computers"})
 	assert.NoError(t, err)
 
 	// Verify index is updated
-	results, err = engine.FindAll("products", map[string]interface{}{"category": "electronics"})
+	results, err = engine.FindAll("products", map[string]interface{}{"category": "electronics"}, nil)
 	assert.NoError(t, err)
-	assert.Len(t, results, 1)
+	assert.Len(t, results.Documents, 1)
 
-	results, err = engine.FindAll("products", map[string]interface{}{"category": "computers"})
+	results, err = engine.FindAll("products", map[string]interface{}{"category": "computers"}, nil)
 	assert.NoError(t, err)
-	assert.Len(t, results, 1)
+	assert.Len(t, results.Documents, 1)
 
 	// Delete a document
 	err = engine.DeleteById("products", "2")
 	assert.NoError(t, err)
 
 	// Verify index is updated
-	results, err = engine.FindAll("products", map[string]interface{}{"category": "electronics"})
+	results, err = engine.FindAll("products", map[string]interface{}{"category": "electronics"}, nil)
 	assert.NoError(t, err)
-	assert.Len(t, results, 0)
+	assert.Len(t, results.Documents, 0)
 }
 
 func TestAutomaticIdIndex(t *testing.T) {
@@ -218,12 +218,12 @@ func TestIndexPerformance(t *testing.T) {
 	}
 
 	// Test query performance with index
-	results, err := engine.FindAll("large_collection", map[string]interface{}{"status": "inactive"})
+	results, err := engine.FindAll("large_collection", map[string]interface{}{"status": "inactive"}, &domain.PaginationOptions{Limit: 1000})
 	assert.NoError(t, err)
-	assert.Len(t, results, 100) // 100 inactive documents (every 10th)
+	assert.Len(t, results.Documents, 100) // 100 inactive documents (every 10th)
 
 	// Test query performance without index (should still work)
-	results, err = engine.FindAll("large_collection", map[string]interface{}{"data": "some data"})
+	results, err = engine.FindAll("large_collection", map[string]interface{}{"data": "some data"}, &domain.PaginationOptions{Limit: 1000})
 	assert.NoError(t, err)
-	assert.Len(t, results, 1000)
+	assert.Len(t, results.Documents, 1000)
 }

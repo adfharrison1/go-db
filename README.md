@@ -60,6 +60,39 @@ GET /collections/{collection}/find?age=30&city=New%20York
 
 **Response**: `200 OK` with JSON array of documents
 
+#### Find Documents with Pagination
+
+The database supports both **offset/limit** and **cursor-based** pagination for efficient data retrieval:
+
+**Offset/Limit Pagination:**
+
+```http
+GET /collections/{collection}/find?limit=10&offset=20
+GET /collections/{collection}/find?age=30&limit=5&offset=0
+```
+
+**Cursor-Based Pagination:**
+
+```http
+GET /collections/{collection}/find?limit=10&after=eyJpZCI6IjEwIiwidGltZXN0YW1wIjoiMjAyNS0wNy0xM1QxOTo0NDoyMS4yNzc3ODkrMDE6MDAifQ==
+GET /collections/{collection}/find?limit=10&before=eyJpZCI6IjIwIiwidGltZXN0YW1wIjoiMjAyNS0wNy0xM1QxOTo0NDoyMS4yNzc3ODkrMDE6MDAifQ==
+```
+
+**Pagination Response Format:**
+
+```json
+{
+  "documents": [...],
+  "hasNext": true,
+  "hasPrev": false,
+  "total": 100,
+  "nextCursor": "eyJpZCI6IjEwIiwidGltZXN0YW1wIjoiMjAyNS0wNy0xM1QxOTo0NDoyMS4yNzc3ODkrMDE6MDAifQ==",
+  "prevCursor": null
+}
+```
+
+**⚠️ Note**: Cannot mix cursor-based (`after`/`before`) and offset-based (`offset`) pagination in the same request.
+
 #### Find Documents with Streaming
 
 ```http
@@ -68,6 +101,8 @@ GET /collections/{collection}/find_with_stream?age=30
 ```
 
 **Response**: `200 OK` with chunked JSON array (memory efficient for large datasets)
+
+**⚠️ Important**: This endpoint does NOT apply pagination - it streams ALL matching documents. Use with caution for large datasets. For paginated queries, use the `/collections/{collection}/find` endpoint instead.
 
 ### Document Operations
 
@@ -148,6 +183,12 @@ curl http://localhost:8080/collections/users/find
 # Find documents with filter
 curl "http://localhost:8080/collections/users/find?age=30&city=New%20York"
 
+# Find documents with offset/limit pagination
+curl "http://localhost:8080/collections/users/find?limit=10&offset=20"
+
+# Find documents with cursor-based pagination
+curl "http://localhost:8080/collections/users/find?limit=10&after=eyJpZCI6IjEwIiwidGltZXN0YW1wIjoiMjAyNS0wNy0xM1QxOTo0NDoyMS4yNzc3ODkrMDE6MDAifQ=="
+
 # Get document by ID
 curl http://localhost:8080/collections/users/documents/1
 
@@ -183,11 +224,14 @@ curl -X DELETE http://localhost:8080/collections/users/indexes/email
 ### Streaming Large Datasets
 
 ```bash
-# Stream all documents (memory efficient)
+# Stream all documents (memory efficient, no pagination)
 curl http://localhost:8080/collections/users/find_with_stream
 
-# Stream with filters
+# Stream with filters (no pagination)
 curl "http://localhost:8080/collections/users/find_with_stream?age=30"
+
+# ⚠️ Warning: These endpoints stream ALL matching documents
+# For paginated queries, use the /find endpoint instead
 ```
 
 ## Testing

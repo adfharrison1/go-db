@@ -4,7 +4,7 @@ package domain
 // This is the core business interface that implementations must conform to
 type StorageEngine interface {
 	Insert(collName string, doc Document) error
-	FindAll(collName string, filter map[string]interface{}) ([]Document, error)
+	FindAll(collName string, filter map[string]interface{}, options *PaginationOptions) (*PaginationResult, error)
 	FindAllStream(collName string, filter map[string]interface{}) (<-chan Document, error)
 	GetById(collName, docId string) (Document, error)
 	UpdateById(collName, docId string, updates Document) error

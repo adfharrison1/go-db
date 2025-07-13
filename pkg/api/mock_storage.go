@@ -2,7 +2,7 @@ package api
 
 import (
 	"fmt"
-	"strings"
+	"sort"
 	"sync"
 
 	"github.com/adfharrison1/go-db/pkg/domain"
@@ -58,7 +58,7 @@ func (m *MockStorageEngine) Insert(collName string, doc domain.Document) error {
 
 // FindAll returns documents that match the given filter criteria
 // If filter is nil or empty, returns all documents
-func (m *MockStorageEngine) FindAll(collName string, filter map[string]interface{}) ([]domain.Document, error) {
+func (m *MockStorageEngine) FindAll(collName string, filter map[string]interface{}, options *domain.PaginationOptions) (*domain.PaginationResult, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -69,18 +69,32 @@ func (m *MockStorageEngine) FindAll(collName string, filter map[string]interface
 		return nil, &CollectionNotFoundError{collName}
 	}
 
+	// Apply filter first
+	var filteredDocs []domain.Document
 	if len(filter) == 0 {
-		return docs, nil
-	}
-
-	var results []domain.Document
-	for _, doc := range docs {
-		if matchesFilter(doc, filter) {
-			results = append(results, doc)
+		filteredDocs = docs
+	} else {
+		for _, doc := range docs {
+			if matchesFilter(doc, filter) {
+				filteredDocs = append(filteredDocs, doc)
+			}
 		}
 	}
 
-	return results, nil
+	// Sort by ID for consistent ordering
+	sort.Slice(filteredDocs, func(i, j int) bool {
+		idI, _ := filteredDocs[i]["_id"].(string)
+		idJ, _ := filteredDocs[j]["_id"].(string)
+		return idI < idJ
+	})
+
+	// Handle cursor-based pagination
+	if options != nil && (options.After != "" || options.Before != "") {
+		return m.applyCursorPagination(filteredDocs, options)
+	}
+
+	// Handle offset-based pagination
+	return m.applyOffsetPagination(filteredDocs, options)
 }
 
 // FindAllStream streams documents from a collection
@@ -95,17 +109,84 @@ func (m *MockStorageEngine) FindAllStream(collName string, filter map[string]int
 		return nil, &CollectionNotFoundError{collName}
 	}
 
-	// Create channel and stream documents
-	docChan := make(chan domain.Document, 100)
+	out := make(chan domain.Document, 100)
 
 	go func() {
-		defer close(docChan)
-		for _, doc := range docs {
-			docChan <- doc
+		defer close(out)
+
+		if len(filter) == 0 {
+			for _, doc := range docs {
+				out <- doc
+			}
+		} else {
+			for _, doc := range docs {
+				if matchesFilter(doc, filter) {
+					out <- doc
+				}
+			}
 		}
 	}()
 
-	return docChan, nil
+	return out, nil
+}
+
+// FindAllStreamWithPagination streams paginated documents from a collection
+func (m *MockStorageEngine) FindAllStreamWithPagination(collName string, filter map[string]interface{}, options *domain.PaginationOptions) (<-chan domain.Document, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	m.streamCalls++
+
+	docs, exists := m.collections[collName]
+	if !exists {
+		return nil, &CollectionNotFoundError{collName}
+	}
+
+	// Apply filter first
+	var filteredDocs []domain.Document
+	if len(filter) == 0 {
+		filteredDocs = docs
+	} else {
+		for _, doc := range docs {
+			if matchesFilter(doc, filter) {
+				filteredDocs = append(filteredDocs, doc)
+			}
+		}
+	}
+
+	// Sort by ID for consistent ordering
+	sort.Slice(filteredDocs, func(i, j int) bool {
+		idI, _ := filteredDocs[i]["_id"].(string)
+		idJ, _ := filteredDocs[j]["_id"].(string)
+		return idI < idJ
+	})
+
+	// Apply pagination
+	var paginatedDocs []domain.Document
+	if options != nil && (options.After != "" || options.Before != "") {
+		result, err := m.applyCursorPagination(filteredDocs, options)
+		if err != nil {
+			return nil, err
+		}
+		paginatedDocs = result.Documents
+	} else {
+		result, err := m.applyOffsetPagination(filteredDocs, options)
+		if err != nil {
+			return nil, err
+		}
+		paginatedDocs = result.Documents
+	}
+
+	out := make(chan domain.Document, 100)
+
+	go func() {
+		defer close(out)
+		for _, doc := range paginatedDocs {
+			out <- doc
+		}
+	}()
+
+	return out, nil
 }
 
 // GetById retrieves a document by ID
@@ -237,79 +318,173 @@ func (m *MockStorageEngine) CreateCollection(collName string) error {
 	return nil
 }
 
-// GetCollection returns a collection (not used in current API)
+// GetCollection returns a collection by name
 func (m *MockStorageEngine) GetCollection(collName string) (*domain.Collection, error) {
-	return nil, nil
-}
-
-// LoadCollectionMetadata loads collection metadata
-func (m *MockStorageEngine) LoadCollectionMetadata(filename string) error {
-	return nil
-}
-
-// SaveToFile saves the database to file
-func (m *MockStorageEngine) SaveToFile(filename string) error {
-	return nil
-}
-
-// GetMemoryStats returns memory statistics
-func (m *MockStorageEngine) GetMemoryStats() map[string]interface{} {
-	return map[string]interface{}{
-		"collections": len(m.collections),
-		"documents":   m.getTotalDocumentCount(),
-	}
-}
-
-// StartBackgroundWorkers starts background workers
-func (m *MockStorageEngine) StartBackgroundWorkers() {
-	// Mock implementation
-}
-
-// StopBackgroundWorkers stops background workers
-func (m *MockStorageEngine) StopBackgroundWorkers() {
-	// Mock implementation
-}
-
-// GetInsertCalls returns the number of insert calls
-func (m *MockStorageEngine) GetInsertCalls() int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.insertCalls
-}
-
-// GetFindCalls returns the number of find calls
-func (m *MockStorageEngine) GetFindCalls() int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.findCalls
-}
-
-// GetStreamCalls returns the number of stream calls
-func (m *MockStorageEngine) GetStreamCalls() int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.streamCalls
-}
-
-// GetCollectionCount returns the number of documents in a collection
-func (m *MockStorageEngine) GetCollectionCount(collName string) int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	docs, exists := m.collections[collName]
 	if !exists {
-		return 0
+		return nil, &CollectionNotFoundError{collName}
 	}
-	return len(docs)
+
+	collection := domain.NewCollection(collName)
+	for _, doc := range docs {
+		// Convert slice index to string ID for consistency
+		docCopy := make(domain.Document)
+		for k, v := range doc {
+			docCopy[k] = v
+		}
+		if id, exists := docCopy["_id"]; exists {
+			collection.Documents[id.(string)] = docCopy
+		}
+	}
+
+	return collection, nil
 }
 
-// getTotalDocumentCount returns the total number of documents across all collections
-func (m *MockStorageEngine) getTotalDocumentCount() int {
-	total := 0
-	for _, docs := range m.collections {
-		total += len(docs)
+// LoadCollectionMetadata loads collection metadata (mock implementation)
+func (m *MockStorageEngine) LoadCollectionMetadata(filename string) error {
+	// Mock implementation - do nothing
+	return nil
+}
+
+// SaveToFile saves collections to file (mock implementation)
+func (m *MockStorageEngine) SaveToFile(filename string) error {
+	// Mock implementation - do nothing
+	return nil
+}
+
+// GetMemoryStats returns memory statistics (mock implementation)
+func (m *MockStorageEngine) GetMemoryStats() map[string]interface{} {
+	return map[string]interface{}{
+		"alloc_mb":       uint64(0),
+		"total_alloc_mb": uint64(0),
+		"sys_mb":         uint64(0),
+		"num_goroutines": 0,
+		"cache_size":     0,
+		"collections":    len(m.collections),
 	}
-	return total
+}
+
+// StartBackgroundWorkers starts background workers (mock implementation)
+func (m *MockStorageEngine) StartBackgroundWorkers() {
+	// Mock implementation - do nothing
+}
+
+// StopBackgroundWorkers stops background workers (mock implementation)
+func (m *MockStorageEngine) StopBackgroundWorkers() {
+	// Mock implementation - do nothing
+}
+
+// Helper function to check if a document matches a filter
+func matchesFilter(doc domain.Document, filter map[string]interface{}) bool {
+	for key, expectedValue := range filter {
+		docValue, exists := doc[key]
+		if !exists {
+			return false
+		}
+
+		// Simple string comparison for now
+		docStr := fmt.Sprintf("%v", docValue)
+		expectedStr := fmt.Sprintf("%v", expectedValue)
+		if docStr != expectedStr {
+			return false
+		}
+	}
+	return true
+}
+
+// Helper for cursor-based pagination
+func (m *MockStorageEngine) applyCursorPagination(docs []domain.Document, options *domain.PaginationOptions) (*domain.PaginationResult, error) {
+	result := &domain.PaginationResult{
+		Documents: []domain.Document{},
+		HasNext:   false,
+		HasPrev:   false,
+		Total:     int64(len(docs)),
+	}
+
+	startIndex := 0
+	endIndex := len(docs)
+
+	if options.After != "" {
+		cursor, err := domain.DecodeCursor(options.After)
+		if err != nil {
+			return nil, fmt.Errorf("invalid after cursor: %w", err)
+		}
+		for i, doc := range docs {
+			if docID, _ := doc["_id"].(string); docID == cursor.ID {
+				startIndex = i + 1
+				break
+			}
+		}
+	}
+
+	if options.Before != "" {
+		cursor, err := domain.DecodeCursor(options.Before)
+		if err != nil {
+			return nil, fmt.Errorf("invalid before cursor: %w", err)
+		}
+		for i, doc := range docs {
+			if docID, _ := doc["_id"].(string); docID == cursor.ID {
+				endIndex = i
+				break
+			}
+		}
+	}
+
+	limit := options.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > options.MaxLimit {
+		limit = options.MaxLimit
+	}
+
+	if startIndex+limit < endIndex {
+		endIndex = startIndex + limit
+		result.HasNext = true
+	}
+	if startIndex > 0 {
+		result.HasPrev = true
+	}
+	if startIndex < len(docs) {
+		result.Documents = docs[startIndex:endIndex]
+	}
+	return result, nil
+}
+
+// Helper for offset-based pagination
+func (m *MockStorageEngine) applyOffsetPagination(docs []domain.Document, options *domain.PaginationOptions) (*domain.PaginationResult, error) {
+	result := &domain.PaginationResult{
+		Documents: []domain.Document{},
+		HasNext:   false,
+		HasPrev:   false,
+		Total:     int64(len(docs)),
+	}
+	offset := options.Offset
+	limit := options.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > options.MaxLimit {
+		limit = options.MaxLimit
+	}
+	startIndex := offset
+	endIndex := offset + limit
+	if startIndex >= len(docs) {
+		return result, nil
+	}
+	if endIndex > len(docs) {
+		endIndex = len(docs)
+	} else {
+		result.HasNext = true
+	}
+	if offset > 0 {
+		result.HasPrev = true
+	}
+	result.Documents = docs[startIndex:endIndex]
+	return result, nil
 }
 
 // CollectionNotFoundError represents a collection not found error
@@ -318,7 +493,7 @@ type CollectionNotFoundError struct {
 }
 
 func (e *CollectionNotFoundError) Error() string {
-	return fmt.Sprintf("collection %s does not exist", e.CollectionName)
+	return fmt.Sprintf("collection '%s' not found", e.CollectionName)
 }
 
 // CollectionExistsError represents a collection already exists error
@@ -327,69 +502,14 @@ type CollectionExistsError struct {
 }
 
 func (e *CollectionExistsError) Error() string {
-	return fmt.Sprintf("collection %s already exists", e.CollectionName)
+	return fmt.Sprintf("collection '%s' already exists", e.CollectionName)
 }
 
 // DocumentNotFoundError represents a document not found error
 type DocumentNotFoundError struct {
-	DocID string
+	DocumentID string
 }
 
 func (e *DocumentNotFoundError) Error() string {
-	return fmt.Sprintf("document %s not found", e.DocID)
-}
-
-// matchesFilter checks if a document matches the given filter criteria
-func matchesFilter(doc domain.Document, filter map[string]interface{}) bool {
-	for key, expectedValue := range filter {
-		actualValue, exists := doc[key]
-		if !exists {
-			return false
-		}
-
-		if !valuesMatch(actualValue, expectedValue) {
-			return false
-		}
-	}
-	return true
-}
-
-// valuesMatch compares two values for equality, handling type conversions
-func valuesMatch(actual, expected interface{}) bool {
-	// Direct equality check
-	if actual == expected {
-		return true
-	}
-
-	// Handle numeric type conversions
-	if actualFloat, ok := toFloat64(actual); ok {
-		if expectedFloat, ok := toFloat64(expected); ok {
-			return actualFloat == expectedFloat
-		}
-	}
-
-	// Handle string case-insensitive comparison
-	if actualStr, ok := actual.(string); ok {
-		if expectedStr, ok := expected.(string); ok {
-			return strings.EqualFold(actualStr, expectedStr)
-		}
-	}
-
-	return false
-}
-
-// toFloat64 converts a value to float64 if possible
-func toFloat64(value interface{}) (float64, bool) {
-	switch v := value.(type) {
-	case float64:
-		return v, true
-	case int:
-		return float64(v), true
-	case int64:
-		return float64(v), true
-	case float32:
-		return float64(v), true
-	default:
-		return 0, false
-	}
+	return fmt.Sprintf("document with id '%s' not found", e.DocumentID)
 }

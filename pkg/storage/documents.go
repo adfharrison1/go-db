@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/adfharrison1/go-db/pkg/domain"
@@ -133,20 +134,30 @@ func (se *StorageEngine) DeleteById(collName, docId string) error {
 
 // FindAll returns documents that match the given filter criteria
 // If filter is nil or empty, returns all documents
-func (se *StorageEngine) FindAll(collName string, filter map[string]interface{}) ([]domain.Document, error) {
-	docChan, err := se.docGenerator(collName, filter)
+func (se *StorageEngine) FindAll(collName string, filter map[string]interface{}, options *domain.PaginationOptions) (*domain.PaginationResult, error) {
+	if options == nil {
+		options = domain.DefaultPaginationOptions()
+	}
+
+	if err := options.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid pagination options: %w", err)
+	}
+
+	docChan, err := se.docGenerator(collName, filter, nil)
 	if err != nil {
 		return nil, err
 	}
-	var results []domain.Document
+
+	var allDocs []domain.Document
 	for doc := range docChan {
-		results = append(results, doc)
+		allDocs = append(allDocs, doc)
 	}
-	return results, nil
+
+	return se.applyPagination(allDocs, options)
 }
 
 // docGenerator yields matching documents for a given filter, using index optimization if possible.
-func (se *StorageEngine) docGenerator(collName string, filter map[string]interface{}) (<-chan domain.Document, error) {
+func (se *StorageEngine) docGenerator(collName string, filter map[string]interface{}, paginationOptions *domain.PaginationOptions) (<-chan domain.Document, error) {
 	out := make(chan domain.Document, 100)
 
 	se.mu.RLock()
@@ -184,6 +195,191 @@ func (se *StorageEngine) docGenerator(collName string, filter map[string]interfa
 		}
 	}()
 	return out, nil
+}
+
+// applyPagination applies pagination to a slice of documents
+func (se *StorageEngine) applyPagination(docs []domain.Document, options *domain.PaginationOptions) (*domain.PaginationResult, error) {
+	// Sort documents by ID for consistent ordering
+	sort.Slice(docs, func(i, j int) bool {
+		idI, _ := docs[i]["_id"].(string)
+		idJ, _ := docs[j]["_id"].(string)
+		return idI < idJ
+	})
+
+	// Handle cursor-based pagination
+	if options.After != "" || options.Before != "" {
+		return se.applyCursorPagination(docs, options)
+	}
+
+	// Handle offset-based pagination
+	return se.applyOffsetPagination(docs, options)
+}
+
+// applyCursorPagination applies cursor-based pagination
+func (se *StorageEngine) applyCursorPagination(docs []domain.Document, options *domain.PaginationOptions) (*domain.PaginationResult, error) {
+	result := &domain.PaginationResult{
+		Documents: []domain.Document{},
+		HasNext:   false,
+		HasPrev:   false,
+		Total:     int64(len(docs)),
+	}
+
+	startIndex := 0
+	endIndex := len(docs)
+
+	// Apply cursor filtering
+	if options.After != "" {
+		cursor, err := domain.DecodeCursor(options.After)
+		if err != nil {
+			return nil, fmt.Errorf("invalid after cursor: %w", err)
+		}
+
+		// Find the index after the cursor
+		for i, doc := range docs {
+			if docID, _ := doc["_id"].(string); docID == cursor.ID {
+				startIndex = i + 1
+				break
+			}
+		}
+	}
+
+	if options.Before != "" {
+		cursor, err := domain.DecodeCursor(options.Before)
+		if err != nil {
+			return nil, fmt.Errorf("invalid before cursor: %w", err)
+		}
+
+		// Find the index before the cursor
+		for i, doc := range docs {
+			if docID, _ := doc["_id"].(string); docID == cursor.ID {
+				endIndex = i
+				break
+			}
+		}
+	}
+
+	// Apply limit
+	limit := options.Limit
+	if limit <= 0 {
+		limit = 50 // default
+	}
+	if limit > options.MaxLimit {
+		limit = options.MaxLimit
+	}
+
+	// Calculate end index
+	if startIndex+limit < endIndex {
+		endIndex = startIndex + limit
+		result.HasNext = true
+	}
+
+	// Set has previous
+	if startIndex > 0 {
+		result.HasPrev = true
+	}
+
+	// Extract documents
+	if startIndex < len(docs) {
+		result.Documents = docs[startIndex:endIndex]
+	}
+
+	// Generate cursors
+	if len(result.Documents) > 0 {
+		if result.HasNext {
+			lastDoc := result.Documents[len(result.Documents)-1]
+			nextCursor := &domain.Cursor{
+				ID:        lastDoc["_id"].(string),
+				Timestamp: time.Now(),
+			}
+			result.NextCursor, _ = domain.EncodeCursor(nextCursor)
+		}
+
+		if result.HasPrev {
+			firstDoc := result.Documents[0]
+			prevCursor := &domain.Cursor{
+				ID:        firstDoc["_id"].(string),
+				Timestamp: time.Now(),
+			}
+			result.PrevCursor, _ = domain.EncodeCursor(prevCursor)
+		}
+	} else if result.HasNext {
+		// If no documents but there are more, generate cursor for the next page
+		// This can happen when using 'before' cursor that points to a document not in current set
+		if startIndex < len(docs) {
+			nextDoc := docs[startIndex]
+			nextCursor := &domain.Cursor{
+				ID:        nextDoc["_id"].(string),
+				Timestamp: time.Now(),
+			}
+			result.NextCursor, _ = domain.EncodeCursor(nextCursor)
+		}
+	}
+
+	return result, nil
+}
+
+// applyOffsetPagination applies offset-based pagination
+func (se *StorageEngine) applyOffsetPagination(docs []domain.Document, options *domain.PaginationOptions) (*domain.PaginationResult, error) {
+	result := &domain.PaginationResult{
+		Documents: []domain.Document{},
+		HasNext:   false,
+		HasPrev:   false,
+		Total:     int64(len(docs)),
+	}
+
+	offset := options.Offset
+	limit := options.Limit
+	if limit <= 0 {
+		limit = 50 // default
+	}
+	if limit > options.MaxLimit {
+		limit = options.MaxLimit
+	}
+
+	// Calculate indices
+	startIndex := offset
+	endIndex := offset + limit
+
+	// Check bounds
+	if startIndex >= len(docs) {
+		return result, nil
+	}
+
+	if endIndex > len(docs) {
+		endIndex = len(docs)
+	} else {
+		result.HasNext = true
+	}
+
+	if offset > 0 {
+		result.HasPrev = true
+	}
+
+	// Extract documents
+	result.Documents = docs[startIndex:endIndex]
+
+	// Generate cursors for offset-based pagination
+	if len(result.Documents) > 0 {
+		if result.HasNext {
+			lastDoc := result.Documents[len(result.Documents)-1]
+			nextCursor := &domain.Cursor{
+				ID:        lastDoc["_id"].(string),
+				Timestamp: time.Now(),
+			}
+			result.NextCursor, _ = domain.EncodeCursor(nextCursor)
+		}
+
+		if result.HasPrev {
+			firstDoc := result.Documents[0]
+			prevCursor := &domain.Cursor{
+				ID:        firstDoc["_id"].(string),
+				Timestamp: time.Now(),
+			}
+			result.PrevCursor, _ = domain.EncodeCursor(prevCursor)
+		}
+	}
+
+	return result, nil
 }
 
 // optimizeWithIndexes attempts to use available indexes to optimize the query

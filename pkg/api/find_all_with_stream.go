@@ -9,6 +9,8 @@ import (
 )
 
 // HandleFindAllWithStream handles GET requests to stream documents from collections
+// NOTE: This endpoint does NOT apply pagination - it streams ALL matching documents.
+// Use /collections/{coll}/find for paginated queries, or handle pagination at the client level.
 func (h *Handler) HandleFindAllWithStream(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	collName := vars["coll"]
@@ -21,15 +23,24 @@ func (h *Handler) HandleFindAllWithStream(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	// Parse query parameters for filtering
+	// Parse query parameters for filtering only (pagination is ignored)
 	filter := make(map[string]interface{})
-	for key, values := range r.URL.Query() {
+	queryParams := r.URL.Query()
+
+	// Build filter from query parameters (ignore pagination parameters)
+	for key, values := range queryParams {
+		// Skip pagination parameters - they are ignored in streaming
+		if key == "limit" || key == "offset" || key == "after" || key == "before" {
+			log.Printf("WARN: Pagination parameter '%s' ignored in streaming endpoint", key)
+			continue
+		}
+
 		if len(values) > 0 {
 			filter[key] = values[0] // Take the first value for each key
 		}
 	}
 
-	// Get document stream from storage engine
+	// Stream all matching documents (no pagination)
 	docChan, err := h.storage.FindAllStream(collName, filter)
 	if err != nil {
 		log.Printf("ERROR: Collection '%s' not found: %v", collName, err)
@@ -74,5 +85,5 @@ func (h *Handler) HandleFindAllWithStream(w http.ResponseWriter, r *http.Request
 	// End JSON array
 	w.Write([]byte("\n]"))
 
-	log.Printf("INFO: Streamed %d documents from collection '%s'", docCount, collName)
+	log.Printf("INFO: Streamed %d documents from collection '%s' (no pagination applied)", docCount, collName)
 }
