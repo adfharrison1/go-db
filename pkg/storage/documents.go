@@ -190,14 +190,12 @@ func (se *StorageEngine) docGenerator(collName string, filter map[string]interfa
 // Returns candidate document IDs and whether index optimization was used
 func (se *StorageEngine) optimizeWithIndexes(collName string, filter map[string]interface{}) ([]string, bool) {
 	var indexResults [][]string
-	var indexedFields []string
 
 	// Find all available indexes for the filter fields
 	for fieldName, expectedValue := range filter {
 		if index, exists := se.getIndex(collName, fieldName); exists {
 			ids := index.Query(expectedValue)
 			indexResults = append(indexResults, ids)
-			indexedFields = append(indexedFields, fieldName)
 		}
 	}
 
