@@ -37,6 +37,7 @@ The Storage Engine is a sophisticated database engine that implements proper mem
 - **Interface-based Design**: Clean separation between storage and indexing engines
 - **API Dependency Injection**: Handlers accept storage and index engines for testability
 - **Unified Find Methods**: Shared logic between FindAll and FindAllStream operations
+- **Multi-Field Index Intersection**: Index-optimized queries support multi-field filters using intersection of multiple indexes for AND queries (e.g., `age=25 AND city='Boston'`).
 
 ## Architecture
 
@@ -170,6 +171,10 @@ docs, err := engine.FindAll("users", nil)
 filter := map[string]interface{}{"age": 30}
 docs, err := engine.FindAll("users", filter)
 
+// Find with multi-field filter (uses index intersection for AND queries if indexes exist)
+filter := map[string]interface{}{ "age": 25, "city": "Boston" }
+docs, err := engine.FindAll("users", filter)
+
 // Stream documents (memory efficient)
 docChan, err := engine.FindAllStream("users", nil)
 if err != nil {
@@ -179,6 +184,9 @@ if err != nil {
 // Stream with filter (currently uses full collection scan)
 filter := map[string]interface{}{"age": 30}
 docChan, err := engine.FindAllStream("users", filter)
+
+// Stream with multi-field filter (also uses index intersection)
+docChan, err := engine.FindAllStream("users", map[string]interface{}{ "age": 25, "city": "Boston" })
 
 // Process documents one at a time
 for doc := range docChan {
@@ -245,8 +253,8 @@ Based on our test results:
 - **LRU Cache Operations**: ~1.4M operations/second
 - **File I/O**: ~2.2x faster than JSON, ~8x smaller files
 - **Memory Allocations**: 50% reduction vs JSON serialization
-- **Indexed Queries**: Framework in place for sub-millisecond response times (implementation in progress)
-- **Filtered Streaming**: Maintains high throughput with filter support
+- **Indexed Queries**: Multi-field index intersection for AND queries is implemented. Queries with multiple indexed fields use all available indexes for maximum efficiency. Both FindAll and FindAllStream share this logic.
+- **Filtered Streaming**: Maintains high throughput with filter and index support.
 
 ### Scalability
 

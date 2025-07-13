@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/adfharrison1/go-db/pkg/domain"
@@ -58,5 +60,77 @@ func TestToFloat64(t *testing.T) {
 		} else {
 			assert.False(t, ok)
 		}
+	}
+}
+
+func TestIntersectStringSlices(t *testing.T) {
+	tests := []struct {
+		name     string
+		slices   [][]string
+		expected []string
+	}{
+		{
+			name:     "empty slices",
+			slices:   [][]string{},
+			expected: nil,
+		},
+		{
+			name:     "single slice",
+			slices:   [][]string{{"a", "b", "c"}},
+			expected: []string{"a", "b", "c"},
+		},
+		{
+			name: "two slices with intersection",
+			slices: [][]string{
+				{"a", "b", "c", "d"},
+				{"b", "c", "e", "f"},
+			},
+			expected: []string{"b", "c"},
+		},
+		{
+			name: "three slices with intersection",
+			slices: [][]string{
+				{"a", "b", "c", "d"},
+				{"b", "c", "e", "f"},
+				{"b", "c", "g", "h"},
+			},
+			expected: []string{"b", "c"},
+		},
+		{
+			name: "no intersection",
+			slices: [][]string{
+				{"a", "b", "c"},
+				{"d", "e", "f"},
+			},
+			expected: []string{},
+		},
+		{
+			name: "empty slice in input",
+			slices: [][]string{
+				{"a", "b", "c"},
+				{},
+				{"b", "c", "d"},
+			},
+			expected: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IntersectStringSlices(tt.slices...)
+
+			// Sort both slices for comparison
+			sort.Strings(result)
+			sort.Strings(tt.expected)
+
+			// Handle empty slice comparison
+			if len(result) == 0 && len(tt.expected) == 0 {
+				return // Both are empty, test passes
+			}
+
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("IntersectStringSlices() = %v, want %v", result, tt.expected)
+			}
+		})
 	}
 }

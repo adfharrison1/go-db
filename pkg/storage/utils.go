@@ -72,3 +72,35 @@ func ToFloat64(value interface{}) (float64, bool) {
 		return 0, false
 	}
 }
+
+// IntersectStringSlices returns the intersection of multiple string slices
+// This is used for index intersection in multi-field queries
+func IntersectStringSlices(slices ...[]string) []string {
+	if len(slices) == 0 {
+		return nil
+	}
+	if len(slices) == 1 {
+		return slices[0]
+	}
+
+	// Create a map to track counts of each ID
+	countMap := make(map[string]int)
+
+	// Count occurrences of each ID across all slices
+	for _, slice := range slices {
+		for _, id := range slice {
+			countMap[id]++
+		}
+	}
+
+	// Find IDs that appear in all slices (count equals number of slices)
+	var result []string
+	expectedCount := len(slices)
+	for id, count := range countMap {
+		if count == expectedCount {
+			result = append(result, id)
+		}
+	}
+
+	return result
+}

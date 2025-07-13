@@ -164,13 +164,7 @@ func (se *StorageEngine) docGenerator(collName string, filter map[string]interfa
 
 		// Try to use index optimization if filter is present
 		if len(filter) > 0 {
-			for fieldName, expectedValue := range filter {
-				if index, exists := se.getIndex(collName, fieldName); exists {
-					candidateIDs = index.Query(expectedValue)
-					useIndex = true
-					break // Only use the first available index
-				}
-			}
+			candidateIDs, useIndex = se.optimizeWithIndexes(collName, filter)
 		}
 
 		if useIndex {
@@ -190,4 +184,34 @@ func (se *StorageEngine) docGenerator(collName string, filter map[string]interfa
 		}
 	}()
 	return out, nil
+}
+
+// optimizeWithIndexes attempts to use available indexes to optimize the query
+// Returns candidate document IDs and whether index optimization was used
+func (se *StorageEngine) optimizeWithIndexes(collName string, filter map[string]interface{}) ([]string, bool) {
+	var indexResults [][]string
+	var indexedFields []string
+
+	// Find all available indexes for the filter fields
+	for fieldName, expectedValue := range filter {
+		if index, exists := se.getIndex(collName, fieldName); exists {
+			ids := index.Query(expectedValue)
+			indexResults = append(indexResults, ids)
+			indexedFields = append(indexedFields, fieldName)
+		}
+	}
+
+	// If no indexes are available, fall back to full scan
+	if len(indexResults) == 0 {
+		return nil, false
+	}
+
+	// If we have multiple indexes, use intersection (AND logic)
+	if len(indexResults) > 1 {
+		candidateIDs := IntersectStringSlices(indexResults...)
+		return candidateIDs, true
+	}
+
+	// Single index optimization
+	return indexResults[0], true
 }

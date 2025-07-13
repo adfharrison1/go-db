@@ -668,3 +668,116 @@ func TestStorageEngine_IndexOptimizationStream(t *testing.T) {
 	}
 	assert.Len(t, results, 0)
 }
+
+func TestStorageEngine_MultiFieldIndexOptimization(t *testing.T) {
+	engine := NewStorageEngine()
+
+	// Create collection and insert test data
+	err := engine.CreateCollection("users")
+	assert.NoError(t, err)
+
+	// Insert documents with multiple fields
+	docs := []domain.Document{
+		{"name": "Alice", "age": 25, "city": "Boston", "role": "admin"},
+		{"name": "Bob", "age": 30, "city": "Boston", "role": "user"},
+		{"name": "Charlie", "age": 25, "city": "New York", "role": "user"},
+		{"name": "Diana", "age": 35, "city": "Boston", "role": "admin"},
+		{"name": "Eve", "age": 25, "city": "Boston", "role": "user"},
+	}
+
+	for _, doc := range docs {
+		err := engine.Insert("users", doc)
+		assert.NoError(t, err)
+	}
+
+	// Create indexes on multiple fields
+	err = engine.CreateIndex("users", "age")
+	assert.NoError(t, err)
+	err = engine.CreateIndex("users", "city")
+	assert.NoError(t, err)
+	err = engine.CreateIndex("users", "role")
+	assert.NoError(t, err)
+
+	// Test single field index optimization
+	results, err := engine.FindAll("users", map[string]interface{}{"age": 25})
+	assert.NoError(t, err)
+	assert.Len(t, results, 3) // Alice, Charlie, Eve
+
+	// Test two-field index intersection (AND logic)
+	results, err = engine.FindAll("users", map[string]interface{}{
+		"age":  25,
+		"city": "Boston",
+	})
+	assert.NoError(t, err)
+	assert.Len(t, results, 2) // Alice, Eve
+
+	// Test three-field index intersection
+	results, err = engine.FindAll("users", map[string]interface{}{
+		"age":  25,
+		"city": "Boston",
+		"role": "user",
+	})
+	assert.NoError(t, err)
+	assert.Len(t, results, 1) // Eve only
+
+	// Test with non-indexed field (should still work but may not use index optimization)
+	results, err = engine.FindAll("users", map[string]interface{}{
+		"age":  25,
+		"name": "Alice",
+	})
+	assert.NoError(t, err)
+	assert.Len(t, results, 1) // Alice only
+
+	// Test streaming with multi-field filters
+	docChan, err := engine.FindAllStream("users", map[string]interface{}{
+		"age":  25,
+		"city": "Boston",
+	})
+	assert.NoError(t, err)
+
+	var streamResults []domain.Document
+	for doc := range docChan {
+		streamResults = append(streamResults, doc)
+	}
+	assert.Len(t, streamResults, 2) // Alice, Eve
+}
+
+func TestStorageEngine_IndexOptimizationFallback(t *testing.T) {
+	engine := NewStorageEngine()
+
+	// Create collection and insert test data
+	err := engine.CreateCollection("users")
+	assert.NoError(t, err)
+
+	// Insert documents
+	docs := []domain.Document{
+		{"name": "Alice", "age": 25, "city": "Boston"},
+		{"name": "Bob", "age": 30, "city": "New York"},
+		{"name": "Charlie", "age": 25, "city": "Boston"},
+	}
+
+	for _, doc := range docs {
+		err := engine.Insert("users", doc)
+		assert.NoError(t, err)
+	}
+
+	// Create index only on age field
+	err = engine.CreateIndex("users", "age")
+	assert.NoError(t, err)
+
+	// Test query with indexed and non-indexed fields
+	// Should use index for age=25, then filter by city
+	results, err := engine.FindAll("users", map[string]interface{}{
+		"age":  25,
+		"city": "Boston",
+	})
+	assert.NoError(t, err)
+	assert.Len(t, results, 2) // Alice, Charlie
+
+	// Test query with only non-indexed fields (should fall back to full scan)
+	results, err = engine.FindAll("users", map[string]interface{}{
+		"city": "Boston",
+	})
+	assert.NoError(t, err)
+	assert.Len(t, results, 2) // Alice, Charlie
+}
