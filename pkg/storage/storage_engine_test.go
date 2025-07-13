@@ -523,3 +523,148 @@ func TestStorageEngine_FilterTypeHandling(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, results, 2) // Both "New York" and "NEW YORK" should match
 }
+
+func TestStorageEngine_IndexOptimization(t *testing.T) {
+	engine := NewStorageEngine()
+	defer engine.StopBackgroundWorkers()
+
+	// Create collection and insert test data
+	err := engine.CreateCollection("users")
+	require.NoError(t, err)
+
+	// Insert documents with different ages
+	docs := []domain.Document{
+		{"name": "Alice", "age": 25, "city": "New York"},
+		{"name": "Bob", "age": 30, "city": "Boston"},
+		{"name": "Charlie", "age": 25, "city": "Chicago"},
+		{"name": "Diana", "age": 35, "city": "New York"},
+		{"name": "Eve", "age": 25, "city": "Boston"},
+	}
+
+	for _, doc := range docs {
+		err := engine.Insert("users", doc)
+		require.NoError(t, err)
+	}
+
+	// Create index on age field
+	err = engine.CreateIndex("users", "age")
+	require.NoError(t, err)
+
+	// Test index optimization - should use index for age=25
+	filter := map[string]interface{}{"age": 25}
+	results, err := engine.FindAll("users", filter)
+	require.NoError(t, err)
+
+	// Should find 3 documents with age=25
+	assert.Len(t, results, 3)
+
+	// Verify we got the right documents
+	names := make(map[string]bool)
+	for _, doc := range results {
+		name, exists := doc["name"]
+		assert.True(t, exists)
+		names[name.(string)] = true
+	}
+
+	assert.True(t, names["Alice"])
+	assert.True(t, names["Charlie"])
+	assert.True(t, names["Eve"])
+
+	// Test multiple field filter - should still work
+	filter = map[string]interface{}{"age": 25, "city": "New York"}
+	results, err = engine.FindAll("users", filter)
+	require.NoError(t, err)
+
+	// Should find 1 document with age=25 and city=New York
+	assert.Len(t, results, 1)
+	assert.Equal(t, "Alice", results[0]["name"])
+
+	// Test non-indexed field - should fall back to full scan
+	filter = map[string]interface{}{"city": "Boston"}
+	results, err = engine.FindAll("users", filter)
+	require.NoError(t, err)
+
+	// Should find 2 documents with city=Boston
+	assert.Len(t, results, 2)
+
+	// Test non-existent value - should return empty
+	filter = map[string]interface{}{"age": 999}
+	results, err = engine.FindAll("users", filter)
+	require.NoError(t, err)
+	assert.Len(t, results, 0)
+}
+
+func TestStorageEngine_IndexOptimizationStream(t *testing.T) {
+	engine := NewStorageEngine()
+	defer engine.StopBackgroundWorkers()
+
+	// Create collection and insert test data
+	err := engine.CreateCollection("users")
+	require.NoError(t, err)
+
+	docs := []domain.Document{
+		{"name": "Alice", "age": 25, "city": "New York"},
+		{"name": "Bob", "age": 30, "city": "Boston"},
+		{"name": "Charlie", "age": 25, "city": "Chicago"},
+		{"name": "Diana", "age": 35, "city": "New York"},
+		{"name": "Eve", "age": 25, "city": "Boston"},
+	}
+	for _, doc := range docs {
+		err := engine.Insert("users", doc)
+		require.NoError(t, err)
+	}
+
+	// Create index on age field
+	err = engine.CreateIndex("users", "age")
+	require.NoError(t, err)
+
+	// Test index optimization - should use index for age=25
+	filter := map[string]interface{}{"age": 25}
+	docChan, err := engine.FindAllStream("users", filter)
+	require.NoError(t, err)
+	var results []domain.Document
+	for doc := range docChan {
+		results = append(results, doc)
+	}
+	assert.Len(t, results, 3)
+	names := make(map[string]bool)
+	for _, doc := range results {
+		name, exists := doc["name"]
+		assert.True(t, exists)
+		names[name.(string)] = true
+	}
+	assert.True(t, names["Alice"])
+	assert.True(t, names["Charlie"])
+	assert.True(t, names["Eve"])
+
+	// Test multiple field filter - should still work
+	filter = map[string]interface{}{"age": 25, "city": "New York"}
+	docChan, err = engine.FindAllStream("users", filter)
+	require.NoError(t, err)
+	results = nil
+	for doc := range docChan {
+		results = append(results, doc)
+	}
+	assert.Len(t, results, 1)
+	assert.Equal(t, "Alice", results[0]["name"])
+
+	// Test non-indexed field - should fall back to full scan
+	filter = map[string]interface{}{"city": "Boston"}
+	docChan, err = engine.FindAllStream("users", filter)
+	require.NoError(t, err)
+	results = nil
+	for doc := range docChan {
+		results = append(results, doc)
+	}
+	assert.Len(t, results, 2)
+
+	// Test non-existent value - should return empty
+	filter = map[string]interface{}{"age": 999}
+	docChan, err = engine.FindAllStream("users", filter)
+	require.NoError(t, err)
+	results = nil
+	for doc := range docChan {
+		results = append(results, doc)
+	}
+	assert.Len(t, results, 0)
+}
