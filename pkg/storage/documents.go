@@ -3,6 +3,7 @@ package storage
 import (
 	"fmt"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/adfharrison1/go-db/pkg/domain"
@@ -27,8 +28,18 @@ func (se *StorageEngine) Insert(collName string, doc domain.Document) error {
 		se.cache.Put(collName, collection, collectionInfo)
 	}
 
-	// Generate unique ID
-	newID := fmt.Sprintf("%d", len(collection.Documents)+1)
+	// Generate unique ID using per-collection atomic counter (thread-safe)
+	se.idCountersMu.Lock()
+	counter, exists := se.idCounters[collName]
+	if !exists {
+		var initialCounter int64 = 0
+		counter = &initialCounter
+		se.idCounters[collName] = counter
+	}
+	se.idCountersMu.Unlock()
+
+	id := atomic.AddInt64(counter, 1)
+	newID := fmt.Sprintf("%d", id)
 	doc["_id"] = newID
 
 	// Update indexes before inserting (oldDoc is nil for new documents)

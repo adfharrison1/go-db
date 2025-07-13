@@ -24,6 +24,10 @@ type StorageEngine struct {
 	// Background workers
 	backgroundWg sync.WaitGroup
 	stopChan     chan struct{}
+
+	// Per-collection ID counters for thread-safe ID generation
+	idCounters   map[string]*int64
+	idCountersMu sync.RWMutex
 }
 
 // NewStorageEngine creates a new storage engine
@@ -32,6 +36,7 @@ func NewStorageEngine(options ...StorageOption) *StorageEngine {
 		collections:    make(map[string]*CollectionInfo),
 		indexEngine:    indexing.NewIndexEngine(),
 		metadata:       make(map[string]interface{}),
+		idCounters:     make(map[string]*int64),
 		maxMemoryMB:    1024, // 1GB default
 		dataDir:        ".",
 		backgroundSave: false,

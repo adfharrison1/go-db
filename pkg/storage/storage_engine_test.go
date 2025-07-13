@@ -1496,15 +1496,14 @@ func TestStorageEngine_ConcurrentDocumentOperations(t *testing.T) {
 	wg.Wait()
 
 	// Verify all documents were inserted
-	docs, err := engine.FindAll("users", nil, nil)
+	docs, err := engine.FindAll("users", nil, &domain.PaginationOptions{Limit: 1000, MaxLimit: 1000})
 	require.NoError(t, err)
 	expectedCount := numGoroutines * docsPerGoroutine
 
-	// Due to race conditions in ID generation, we might get fewer documents
-	// This is expected behavior when multiple goroutines insert concurrently
-	assert.GreaterOrEqual(t, len(docs.Documents), expectedCount/2,
-		"Expected at least %d documents, got %d. This might be due to ID generation race conditions in concurrent inserts.",
-		expectedCount/2, len(docs.Documents))
+	// With atomic ID generation, we should get exactly the expected number of documents
+	assert.Len(t, docs.Documents, expectedCount,
+		"Expected exactly %d documents with atomic ID generation, got %d.",
+		expectedCount, len(docs.Documents))
 
 	// Test sequential operations to avoid concurrent map access
 	for i := 0; i < numGoroutines; i++ {
