@@ -2,6 +2,8 @@ package storage
 
 import (
 	"fmt"
+	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -29,10 +31,33 @@ const (
 	LargeDatasetSize = 10000
 )
 
+// createIsolatedEngine creates a storage engine with proper isolation for testing
+func createIsolatedEngine(t *testing.T) *StorageEngine {
+	// Create temporary directory for this test
+	tempDir, err := os.MkdirTemp("", "go-db-test-*")
+	require.NoError(t, err)
+
+	// Cleanup temp directory when test completes
+	t.Cleanup(func() {
+		os.RemoveAll(tempDir)
+	})
+
+	// Create engine with isolated temp directory
+	engine := NewStorageEngine(WithDataDir(tempDir))
+
+	// Cleanup engine when test completes
+	t.Cleanup(func() {
+		engine.StopBackgroundWorkers()
+		runtime.GC() // Force garbage collection to clean up memory
+	})
+
+	return engine
+}
+
 // TestIndexedVsNonIndexedPerformance measures the performance improvement
 // of indexed queries vs non-indexed queries
 func TestIndexedVsNonIndexedPerformance(t *testing.T) {
-	engine := NewStorageEngine()
+	engine := createIsolatedEngine(t)
 
 	// Create collection and insert large dataset
 	err := engine.CreateCollection("users")
@@ -59,6 +84,10 @@ func TestIndexedVsNonIndexedPerformance(t *testing.T) {
 	require.NoError(t, err)
 	err = engine.CreateIndex("users", "role")
 	require.NoError(t, err)
+
+	// Force garbage collection before performance tests
+	runtime.GC()
+	runtime.GC() // Run twice to ensure thorough cleanup
 
 	// Test single field queries
 	t.Run("SingleField_IndexedVsNonIndexed", func(t *testing.T) {
@@ -89,6 +118,10 @@ func TestIndexedVsNonIndexedPerformance(t *testing.T) {
 
 	// Test multi-field queries
 	t.Run("MultiField_IndexIntersection", func(t *testing.T) {
+		// Force garbage collection before this specific test
+		runtime.GC()
+		runtime.GC()
+
 		// Query using multiple indexes (age AND city)
 		start := time.Now()
 		intersectionResults, err := engine.FindAll("users", map[string]interface{}{
@@ -133,7 +166,7 @@ func TestIndexedVsNonIndexedPerformance(t *testing.T) {
 
 // TestMemoryUsageForLargeDatasets measures memory usage during operations
 func TestMemoryUsageForLargeDatasets(t *testing.T) {
-	engine := NewStorageEngine()
+	engine := createIsolatedEngine(t)
 
 	// Get initial memory stats
 	initialStats := engine.GetMemoryStats()
@@ -189,7 +222,7 @@ func TestMemoryUsageForLargeDatasets(t *testing.T) {
 
 // TestStreamingPerformance measures streaming throughput
 func TestStreamingPerformance(t *testing.T) {
-	engine := NewStorageEngine()
+	engine := createIsolatedEngine(t)
 
 	// Create collection and insert large dataset
 	err := engine.CreateCollection("users")
@@ -206,6 +239,10 @@ func TestStreamingPerformance(t *testing.T) {
 		err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
+
+	// Force garbage collection before performance tests
+	runtime.GC()
+	runtime.GC()
 
 	// Test streaming performance
 	t.Run("StreamingThroughput", func(t *testing.T) {
@@ -254,10 +291,16 @@ func TestStreamingPerformance(t *testing.T) {
 
 // Benchmark functions for performance regression testing
 func BenchmarkIndexedQueries(b *testing.B) {
-	engine := NewStorageEngine()
+	// Create temporary directory for this benchmark
+	tempDir, err := os.MkdirTemp("", "go-db-benchmark-*")
+	require.NoError(b, err)
+	defer os.RemoveAll(tempDir)
+
+	engine := NewStorageEngine(WithDataDir(tempDir))
+	defer engine.StopBackgroundWorkers()
 
 	// Setup: create collection with large dataset and indexes
-	err := engine.CreateCollection("users")
+	err = engine.CreateCollection("users")
 	require.NoError(b, err)
 
 	// Insert dataset
@@ -306,10 +349,16 @@ func BenchmarkIndexedQueries(b *testing.B) {
 }
 
 func BenchmarkStreaming(b *testing.B) {
-	engine := NewStorageEngine()
+	// Create temporary directory for this benchmark
+	tempDir, err := os.MkdirTemp("", "go-db-benchmark-*")
+	require.NoError(b, err)
+	defer os.RemoveAll(tempDir)
+
+	engine := NewStorageEngine(WithDataDir(tempDir))
+	defer engine.StopBackgroundWorkers()
 
 	// Setup: create collection with large dataset
-	err := engine.CreateCollection("users")
+	err = engine.CreateCollection("users")
 	require.NoError(b, err)
 
 	// Insert dataset
