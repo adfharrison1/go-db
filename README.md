@@ -32,6 +32,52 @@ go run cmd/go-db.go
 
 The server will start on `:8080` and automatically load/save data to `go-db_data.godb`.
 
+## Command Line Options
+
+go-db supports various configuration options via command line flags:
+
+```bash
+# Basic usage
+go run cmd/go-db.go
+
+# Custom port and memory settings
+go run cmd/go-db.go -port 9090 -max-memory 2048
+
+# Enable background auto-save every 5 minutes (recommended for production)
+go run cmd/go-db.go -background-save 5m
+
+# Custom data directory and file
+go run cmd/go-db.go -data-dir /var/lib/go-db -data-file myapp.godb
+
+# Show all options
+go run cmd/go-db.go -help
+```
+
+### Available Options
+
+| Flag               | Default           | Description                                  |
+| ------------------ | ----------------- | -------------------------------------------- |
+| `-port`            | `8080`            | Server port                                  |
+| `-data-file`       | `go-db_data.godb` | Data file path for persistence               |
+| `-data-dir`        | `.`               | Data directory for storage                   |
+| `-max-memory`      | `1024`            | Maximum memory usage in MB                   |
+| `-background-save` | `0` (disabled)    | Background save interval (e.g., `5m`, `30s`) |
+| `-help`            | `false`           | Show help message                            |
+
+### Data Safety
+
+**⚠️ Important:** By default, data is only saved when the server shuts down gracefully. For production use, enable background saves:
+
+```bash
+# Auto-save every 5 minutes
+go run cmd/go-db.go -background-save 5m
+
+# Auto-save every 30 seconds
+go run cmd/go-db.go -background-save 30s
+```
+
+Without background saves, you risk data loss if the server crashes or is forcefully terminated.
+
 ## API Reference
 
 ### Collection Operations
@@ -236,6 +282,8 @@ curl "http://localhost:8080/collections/users/find_with_stream?age=30"
 
 ## Testing
 
+### Unit Tests
+
 Run all tests:
 
 ```bash
@@ -261,6 +309,10 @@ Run benchmarks:
 ```bash
 go test ./pkg/storage/... -bench=.
 ```
+
+### Load Testing
+
+A load testing script is available to test insert performance in test_scripts
 
 ## Storage Format
 

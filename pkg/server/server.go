@@ -23,9 +23,9 @@ type Server struct {
 	mu          sync.RWMutex
 }
 
-// NewServer creates a new instance of Server.
-func NewServer() *Server {
-	dbEngine := storage.NewStorageEngine()
+// NewServer creates a new instance of Server with storage options.
+func NewServer(storageOptions ...storage.StorageOption) *Server {
+	dbEngine := storage.NewStorageEngine(storageOptions...)
 	indexEngine := indexing.NewIndexEngine()
 
 	s := &Server{
@@ -47,7 +47,15 @@ func NewServer() *Server {
 		http.NotFound(w, r)
 	})
 
+	// Start background workers if configured
+	dbEngine.StartBackgroundWorkers()
+
 	return s
+}
+
+// StopBackgroundWorkers stops any background workers
+func (s *Server) StopBackgroundWorkers() {
+	s.dbEngine.StopBackgroundWorkers()
 }
 
 // requestLoggerMiddleware logs the method, URL path, and duration for each request.
