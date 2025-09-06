@@ -9,8 +9,8 @@ type BatchUpdateOperation struct {
 // StorageEngine defines the interface for storage operations
 // This is the core business interface that implementations must conform to
 type StorageEngine interface {
-	Insert(collName string, doc Document) error
-	BatchInsert(collName string, docs []Document) error
+	Insert(collName string, doc Document) (Document, error)
+	BatchInsert(collName string, docs []Document) ([]Document, error)
 	FindAll(collName string, filter map[string]interface{}, options *PaginationOptions) (*PaginationResult, error)
 	FindAllStream(collName string, filter map[string]interface{}) (<-chan Document, error)
 	GetById(collName, docId string) (Document, error)

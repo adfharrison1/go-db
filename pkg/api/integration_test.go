@@ -152,6 +152,20 @@ func TestAPI_Integration_BasicCRUD(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
+		// Verify the response contains the created document with ID
+		body, err := ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		var createdDoc map[string]interface{}
+		err = json.Unmarshal([]byte(body), &createdDoc)
+		require.NoError(t, err)
+
+		// Verify the document has an _id field
+		assert.Contains(t, createdDoc, "_id")
+		assert.Equal(t, "Alice", createdDoc["name"])
+		assert.Equal(t, 30, int(createdDoc["age"].(float64)))
+		assert.Equal(t, "alice@example.com", createdDoc["email"])
+
 		// Verify file was created due to transaction save
 		usersFile := filepath.Join(ts.TempDir, "collections", "users.godb")
 		assert.FileExists(t, usersFile)

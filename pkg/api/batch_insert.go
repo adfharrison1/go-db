@@ -16,10 +16,11 @@ type BatchInsertRequest struct {
 
 // BatchInsertResponse represents the response for batch insert operations
 type BatchInsertResponse struct {
-	Success       bool   `json:"success"`
-	Message       string `json:"message"`
-	InsertedCount int    `json:"inserted_count"`
-	Collection    string `json:"collection"`
+	Success       bool              `json:"success"`
+	Message       string            `json:"message"`
+	InsertedCount int               `json:"inserted_count"`
+	Collection    string            `json:"collection"`
+	Documents     []domain.Document `json:"documents"`
 }
 
 // HandleBatchInsert handles POST requests to insert multiple documents into collections
@@ -60,7 +61,8 @@ func (h *Handler) HandleBatchInsert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Perform batch insert
-	if err := h.storage.BatchInsert(collName, docs); err != nil {
+	createdDocs, err := h.storage.BatchInsert(collName, docs)
+	if err != nil {
 		log.Printf("ERROR: Batch insert failed for collection '%s': %v", collName, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -72,12 +74,13 @@ func (h *Handler) HandleBatchInsert(w http.ResponseWriter, r *http.Request) {
 		// Don't fail the request if save fails, just log the warning
 	}
 
-	// Return success response
+	// Return success response with created documents
 	response := BatchInsertResponse{
 		Success:       true,
 		Message:       "Batch insert completed successfully",
-		InsertedCount: len(docs),
+		InsertedCount: len(createdDocs),
 		Collection:    collName,
+		Documents:     createdDocs,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

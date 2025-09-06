@@ -132,7 +132,7 @@ Content-Type: application/json
 }
 ```
 
-**Response**: `201 Created` with document ID
+**Response**: `201 Created` with the created document (including generated `_id`)
 
 #### Batch Insert Documents
 
@@ -170,7 +170,27 @@ Content-Type: application/json
   "success": true,
   "message": "Batch insert completed successfully",
   "inserted_count": 3,
-  "collection": "users"
+  "collection": "users",
+  "documents": [
+    {
+      "_id": "1",
+      "name": "Alice",
+      "age": 30,
+      "email": "alice@example.com"
+    },
+    {
+      "_id": "2",
+      "name": "Bob",
+      "age": 25,
+      "email": "bob@example.com"
+    },
+    {
+      "_id": "3",
+      "name": "Charlie",
+      "age": 35,
+      "email": "charlie@example.com"
+    }
+  ]
 }
 ```
 

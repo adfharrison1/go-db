@@ -74,7 +74,7 @@ func TestIndexedVsNonIndexedPerformance(t *testing.T) {
 			"role":  fmt.Sprintf("role%d", i%10), // 10 roles
 			"score": i % 1000,                    // 0-999
 		}
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -189,7 +189,7 @@ func TestMemoryUsageForLargeDatasets(t *testing.T) {
 				"city": fmt.Sprintf("city%d", docID%50),
 				"data": fmt.Sprintf("data_%d_%s", docID, generateRandomString(100)),
 			}
-			err := engine.Insert("users", doc)
+			_, err := engine.Insert("users", doc)
 			require.NoError(t, err)
 		}
 
@@ -237,7 +237,7 @@ func TestStreamingPerformance(t *testing.T) {
 			"age":  i % 100,
 			"city": fmt.Sprintf("city%d", i%50),
 		}
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -312,7 +312,7 @@ func BenchmarkIndexedQueries(b *testing.B) {
 			"age":  i % 100,
 			"city": fmt.Sprintf("city%d", i%50),
 		}
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(b, err)
 	}
 
@@ -369,7 +369,7 @@ func BenchmarkStreaming(b *testing.B) {
 			"name": fmt.Sprintf("user%d", i),
 			"age":  i % 100,
 		}
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(b, err)
 	}
 
@@ -429,7 +429,7 @@ func TestBatchInsertPerformance(t *testing.T) {
 		}
 
 		start := time.Now()
-		err := engine.BatchInsert("performance_users", docs)
+		_, err := engine.BatchInsert("performance_users", docs)
 		duration := time.Since(start)
 
 		require.NoError(t, err)
@@ -462,7 +462,7 @@ func TestBatchInsertPerformance(t *testing.T) {
 
 		start := time.Now()
 		for _, doc := range docs1 {
-			err := engine.Insert("individual_inserts", doc)
+			_, err := engine.Insert("individual_inserts", doc)
 			require.NoError(t, err)
 		}
 		individualDuration := time.Since(start)
@@ -478,7 +478,7 @@ func TestBatchInsertPerformance(t *testing.T) {
 		}
 
 		start = time.Now()
-		err := engine.BatchInsert("batch_inserts", docs2)
+		_, err := engine.BatchInsert("batch_inserts", docs2)
 		batchDuration := time.Since(start)
 
 		require.NoError(t, err)
@@ -516,7 +516,7 @@ func TestBatchUpdatePerformance(t *testing.T) {
 		}
 	}
 
-	err := engine.BatchInsert("update_performance", setupDocs)
+	_, err := engine.BatchInsert("update_performance", setupDocs)
 	require.NoError(t, err)
 
 	t.Run("Batch Update 1000 Documents", func(t *testing.T) {
@@ -615,7 +615,7 @@ func TestBatchOperationsMemoryUsage(t *testing.T) {
 			}
 		}
 
-		err := engine.BatchInsert("memory_test", docs)
+		_, err := engine.BatchInsert("memory_test", docs)
 		require.NoError(t, err)
 
 		afterInsertStats := engine.GetMemoryStats()

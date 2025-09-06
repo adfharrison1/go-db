@@ -29,7 +29,8 @@ func (h *Handler) HandleInsert(w http.ResponseWriter, r *http.Request) {
 		document[k] = v
 	}
 
-	if err := h.storage.Insert(collName, document); err != nil {
+	createdDoc, err := h.storage.Insert(collName, document)
+	if err != nil {
 		log.Printf("ERROR: Insert failed for collection '%s': %v", collName, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -42,5 +43,9 @@ func (h *Handler) HandleInsert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("INFO: Insert successful for collection '%s'", collName)
+
+	// Return the created document
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(createdDoc)
 }

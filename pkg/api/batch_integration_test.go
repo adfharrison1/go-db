@@ -45,6 +45,16 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 		assert.Equal(t, "employees", response.Collection)
 		assert.Equal(t, "Batch insert completed successfully", response.Message)
 
+		// Verify the response contains the created documents with IDs
+		assert.Len(t, response.Documents, 5)
+		expectedNames := []string{"Alice", "Bob", "Charlie", "Diana", "Eve"}
+		expectedAges := []int{30, 25, 35, 28, 32}
+		for i, doc := range response.Documents {
+			assert.Contains(t, doc, "_id")
+			assert.Equal(t, expectedNames[i], doc["name"])
+			assert.Equal(t, expectedAges[i], int(doc["age"].(float64)))
+		}
+
 		// Verify documents were actually inserted
 		findResp, err := ts.GET("/collections/employees/find")
 		require.NoError(t, err)

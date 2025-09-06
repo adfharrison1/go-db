@@ -9,8 +9,8 @@ import (
 	"github.com/adfharrison1/go-db/pkg/domain"
 )
 
-// Insert inserts a document into a collection
-func (se *StorageEngine) Insert(collName string, doc domain.Document) error {
+// Insert inserts a document into a collection and returns the created document with ID
+func (se *StorageEngine) Insert(collName string, doc domain.Document) (domain.Document, error) {
 	se.mu.Lock()
 	defer se.mu.Unlock()
 	// Get or load collection
@@ -54,7 +54,7 @@ func (se *StorageEngine) Insert(collName string, doc domain.Document) error {
 		collectionInfo.LastModified = time.Now()
 	}
 
-	return nil
+	return doc, nil
 }
 
 // GetById retrieves a specific document by its ID
@@ -428,13 +428,14 @@ func (se *StorageEngine) optimizeWithIndexes(collName string, filter map[string]
 
 // BatchInsert inserts multiple documents into a collection atomically
 // All documents are inserted successfully or none are inserted (atomic operation)
-func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) error {
+// Returns the created documents with their assigned IDs
+func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) ([]domain.Document, error) {
 	if len(docs) == 0 {
-		return fmt.Errorf("no documents provided for batch insert")
+		return nil, fmt.Errorf("no documents provided for batch insert")
 	}
 
 	if len(docs) > 1000 {
-		return fmt.Errorf("batch insert limited to 1000 documents, got %d", len(docs))
+		return nil, fmt.Errorf("batch insert limited to 1000 documents, got %d", len(docs))
 	}
 
 	se.mu.Lock()
@@ -506,7 +507,7 @@ func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) er
 				delete(se.idCounters, collName)
 				se.idCountersMu.Unlock()
 			}
-			return fmt.Errorf("document with ID %s already exists in collection %s", newID, collName)
+			return nil, fmt.Errorf("document with ID %s already exists in collection %s", newID, collName)
 		}
 	}
 
@@ -536,7 +537,13 @@ func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) er
 		collectionInfo.LastModified = time.Now()
 	}
 
-	return nil
+	// Return the created documents
+	createdDocs := make([]domain.Document, len(docsWithIDs))
+	for i, docWithID := range docsWithIDs {
+		createdDocs[i] = docWithID.doc
+	}
+
+	return createdDocs, nil
 }
 
 // BatchUpdate updates multiple documents in a collection atomically

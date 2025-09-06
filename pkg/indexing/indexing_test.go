@@ -25,7 +25,7 @@ func TestCreateIndex(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("test", doc)
+		_, err := engine.Insert("test", doc)
 		require.NoError(t, err)
 	}
 
@@ -64,7 +64,7 @@ func TestIndexOptimization(t *testing.T) {
 	}
 
 	for _, user := range users {
-		err := engine.Insert("users", user)
+		_, err := engine.Insert("users", user)
 		require.NoError(t, err)
 	}
 
@@ -115,7 +115,7 @@ func TestIndexMaintenance(t *testing.T) {
 	}
 
 	for _, product := range products {
-		err := engine.Insert("products", product)
+		_, err := engine.Insert("products", product)
 		require.NoError(t, err)
 	}
 
@@ -162,7 +162,7 @@ func TestAutomaticIdIndex(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("test", doc)
+		_, err := engine.Insert("test", doc)
 		require.NoError(t, err)
 	}
 
@@ -213,7 +213,7 @@ func TestIndexPerformance(t *testing.T) {
 			"status": status,
 			"data":   "some data",
 		}
-		err := engine.Insert("large_collection", doc)
+		_, err := engine.Insert("large_collection", doc)
 		require.NoError(t, err)
 	}
 

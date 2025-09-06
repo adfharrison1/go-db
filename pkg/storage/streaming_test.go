@@ -23,7 +23,7 @@ func TestStorageEngine_FindAllStream_Basic(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -97,7 +97,7 @@ func TestStorageEngine_FindAllStream_LargeDataset(t *testing.T) {
 			"email": fmt.Sprintf("user%d@example.com", i),
 			"data":  fmt.Sprintf("Large data payload for user %d", i),
 		}
-		err := engine.Insert("large_collection", doc)
+		_, err := engine.Insert("large_collection", doc)
 		require.NoError(t, err)
 	}
 
@@ -130,7 +130,7 @@ func TestStorageEngine_FindAllStream_ConcurrentStreaming(t *testing.T) {
 	const numDocs = 100
 	for i := 0; i < numDocs; i++ {
 		doc := domain.Document{"id": i, "data": fmt.Sprintf("doc_%d", i)}
-		err := engine.Insert("concurrent", doc)
+		_, err := engine.Insert("concurrent", doc)
 		require.NoError(t, err)
 	}
 
@@ -176,7 +176,7 @@ func TestStorageEngine_FindAllStream_ChannelBuffer(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("buffer_test", doc)
+		_, err := engine.Insert("buffer_test", doc)
 		require.NoError(t, err)
 	}
 
@@ -213,7 +213,7 @@ func TestStorageEngine_FindAllStream_ShutdownHandling(t *testing.T) {
 	// Insert documents
 	for i := 0; i < 10; i++ {
 		doc := domain.Document{"id": i, "data": fmt.Sprintf("doc_%d", i)}
-		err := engine.Insert("shutdown_test", doc)
+		_, err := engine.Insert("shutdown_test", doc)
 		require.NoError(t, err)
 	}
 
@@ -268,7 +268,7 @@ func TestStorageEngine_FindAllStream_DocumentModification(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("modify_test", doc)
+		_, err := engine.Insert("modify_test", doc)
 		require.NoError(t, err)
 	}
 
@@ -280,7 +280,7 @@ func TestStorageEngine_FindAllStream_DocumentModification(t *testing.T) {
 	go func() {
 		time.Sleep(10 * time.Millisecond) // Small delay
 		newDoc := domain.Document{"name": "Eve", "age": 28}
-		engine.Insert("modify_test", newDoc)
+		_, err = engine.Insert("modify_test", newDoc)
 	}()
 
 	// Collect documents from stream
@@ -317,7 +317,7 @@ func TestStorageEngine_FindAllStream_Performance(t *testing.T) {
 			"email": fmt.Sprintf("user%d@example.com", i),
 			"data":  fmt.Sprintf("Data for user %d", i),
 		}
-		err := engine.Insert("perf_test", doc)
+		_, err := engine.Insert("perf_test", doc)
 		require.NoError(t, err)
 	}
 

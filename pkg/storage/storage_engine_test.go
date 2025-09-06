@@ -70,9 +70,9 @@ func TestStorageEngine_InsertAndFind(t *testing.T) {
 	doc1 := domain.Document{"name": "Alice", "age": 30}
 	doc2 := domain.Document{"name": "Bob", "age": 25}
 
-	err := engine.Insert("users", doc1)
+	_, err := engine.Insert("users", doc1)
 	require.NoError(t, err)
-	err = engine.Insert("users", doc2)
+	_, err = engine.Insert("users", doc2)
 	require.NoError(t, err)
 
 	result, err := engine.FindAll("users", nil, nil)
@@ -143,7 +143,7 @@ func TestStorageEngine_Streaming(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -166,7 +166,7 @@ func TestStorageEngine_MemoryStats(t *testing.T) {
 	// Insert some data
 	for i := 0; i < 10; i++ {
 		doc := domain.Document{"id": i, "data": "test"}
-		err := engine.Insert("test", doc)
+		_, err := engine.Insert("test", doc)
 		require.NoError(t, err)
 	}
 
@@ -221,7 +221,7 @@ func TestStorageEngine_Persistence(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -269,7 +269,7 @@ func TestStorageEngine_Concurrency(t *testing.T) {
 					"doc_id":    j,
 					"data":      "concurrent test",
 				}
-				err := engine.Insert("concurrent", doc)
+				_, err := engine.Insert("concurrent", doc)
 				require.NoError(t, err)
 			}
 			done <- true
@@ -297,7 +297,7 @@ func TestStorageEngine_ErrorHandling(t *testing.T) {
 
 	// Test inserting to non-existent collection (should create it)
 	doc := domain.Document{"test": "data"}
-	err = engine.Insert("new_collection", doc)
+	_, err = engine.Insert("new_collection", doc)
 	assert.NoError(t, err)
 
 	// Verify collection was created
@@ -314,9 +314,9 @@ func TestStorageEngine_GetById(t *testing.T) {
 	doc1 := domain.Document{"_id": "1", "name": "Alice", "age": 25}
 	doc2 := domain.Document{"_id": "2", "name": "Bob", "age": 30}
 
-	err := engine.Insert("users", doc1)
+	_, err := engine.Insert("users", doc1)
 	require.NoError(t, err)
-	err = engine.Insert("users", doc2)
+	_, err = engine.Insert("users", doc2)
 	require.NoError(t, err)
 
 	// Test successful retrieval
@@ -342,7 +342,7 @@ func TestStorageEngine_UpdateById(t *testing.T) {
 
 	// Insert test document
 	doc := domain.Document{"_id": "1", "name": "Alice", "age": 25}
-	err := engine.Insert("users", doc)
+	_, err := engine.Insert("users", doc)
 	require.NoError(t, err)
 
 	// Test successful update
@@ -385,9 +385,9 @@ func TestStorageEngine_DeleteById(t *testing.T) {
 	doc1 := domain.Document{"_id": "1", "name": "Alice", "age": 25}
 	doc2 := domain.Document{"_id": "2", "name": "Bob", "age": 30}
 
-	err := engine.Insert("users", doc1)
+	_, err := engine.Insert("users", doc1)
 	require.NoError(t, err)
-	err = engine.Insert("users", doc2)
+	_, err = engine.Insert("users", doc2)
 	require.NoError(t, err)
 
 	// Verify both documents exist
@@ -429,7 +429,7 @@ func TestStorageEngine_FindAll(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -488,7 +488,7 @@ func TestStorageEngine_FilterTypeHandling(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -515,7 +515,7 @@ func TestStorageEngine_FilterTypeHandling(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -546,7 +546,7 @@ func TestStorageEngine_IndexOptimization(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -614,7 +614,7 @@ func TestStorageEngine_IndexOptimizationStream(t *testing.T) {
 		{"name": "Eve", "age": 25, "city": "Boston"},
 	}
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -690,7 +690,7 @@ func TestStorageEngine_MultiFieldIndexOptimization(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		assert.NoError(t, err)
 	}
 
@@ -761,7 +761,7 @@ func TestStorageEngine_IndexOptimizationFallback(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		assert.NoError(t, err)
 	}
 
@@ -803,7 +803,7 @@ func TestStorageEngine_DropIndex(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -850,7 +850,7 @@ func TestStorageEngine_FindByIndex(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -934,7 +934,7 @@ func TestStorageEngine_UpdateIndex(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -949,7 +949,7 @@ func TestStorageEngine_UpdateIndex(t *testing.T) {
 	}
 
 	for _, doc := range moreDocs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -986,7 +986,7 @@ func TestStorageEngine_BackgroundSave(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -1039,12 +1039,12 @@ func TestStorageEngine_InsertEdgeCases(t *testing.T) {
 	defer engine.StopBackgroundWorkers()
 
 	// Test inserting empty document
-	err := engine.Insert("users", domain.Document{})
+	_, err := engine.Insert("users", domain.Document{})
 	assert.NoError(t, err)
 
 	// Test inserting document with _id already set
 	doc := domain.Document{"_id": "custom_id", "name": "Alice"}
-	err = engine.Insert("users", doc)
+	_, err = engine.Insert("users", doc)
 	assert.NoError(t, err)
 
 	// Verify _id was preserved (note: Insert may generate new ID)
@@ -1068,7 +1068,7 @@ func TestStorageEngine_InsertEdgeCases(t *testing.T) {
 		},
 	}
 
-	err = engine.Insert("users", complexDoc)
+	_, err = engine.Insert("users", complexDoc)
 	assert.NoError(t, err)
 
 	// Verify complex document was stored correctly
@@ -1099,7 +1099,7 @@ func TestStorageEngine_UpdateByIdEdgeCases(t *testing.T) {
 
 	// Insert test document
 	doc := domain.Document{"name": "Alice", "age": 25}
-	err := engine.Insert("users", doc)
+	_, err := engine.Insert("users", doc)
 	require.NoError(t, err)
 
 	// Get the generated ID
@@ -1163,7 +1163,7 @@ func TestStorageEngine_FindAllEdgeCases(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -1229,7 +1229,7 @@ func TestStorageEngine_ConcurrentIndexOperations(t *testing.T) {
 			"age":  i % 50,
 			"city": fmt.Sprintf("city%d", i%10),
 		}
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -1315,7 +1315,7 @@ func TestStorageEngine_CollectionStateTransitions(t *testing.T) {
 
 	// Insert document to make it dirty
 	doc := domain.Document{"name": "Alice"}
-	err = engine.Insert("users", doc)
+	_, err = engine.Insert("users", doc)
 	require.NoError(t, err)
 
 	// Verify state changed to dirty
@@ -1365,7 +1365,7 @@ func TestStorageEngine_IndexConsistency(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -1429,7 +1429,7 @@ func TestStorageEngine_StreamingEdgeCases(t *testing.T) {
 
 	// Test streaming with filter that matches nothing
 	doc := domain.Document{"name": "Alice", "age": 25}
-	err = engine.Insert("users", doc)
+	_, err = engine.Insert("users", doc)
 	require.NoError(t, err)
 
 	docChan, err = engine.FindAllStream("users", map[string]interface{}{"age": 999})
@@ -1449,7 +1449,7 @@ func TestStorageEngine_StreamingEdgeCases(t *testing.T) {
 	}
 
 	for _, doc := range moreDocs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -1489,7 +1489,7 @@ func TestStorageEngine_ConcurrentDocumentOperations(t *testing.T) {
 					"doc_id":    j,
 					"name":      fmt.Sprintf("user_%d_%d", id, j),
 				}
-				err := engine.Insert("users", doc)
+				_, err := engine.Insert("users", doc)
 				assert.NoError(t, err)
 			}
 		}(i)
@@ -1557,7 +1557,7 @@ func TestStorageEngine_SaveDirtyCollections(t *testing.T) {
 			"name": fmt.Sprintf("User%d", i),
 			"age":  20 + i,
 		}
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -1567,7 +1567,7 @@ func TestStorageEngine_SaveDirtyCollections(t *testing.T) {
 			"name":  fmt.Sprintf("Product%d", i),
 			"price": 10.0 + float64(i),
 		}
-		err := engine.Insert("products", doc)
+		_, err := engine.Insert("products", doc)
 		require.NoError(t, err)
 	}
 
@@ -1648,7 +1648,7 @@ func TestStorageEngine_SaveCollectionToFile(t *testing.T) {
 	require.NoError(t, err)
 
 	doc := domain.Document{"name": "TestUser", "age": 25}
-	err = engine.Insert("test", doc)
+	_, err = engine.Insert("test", doc)
 	require.NoError(t, err)
 
 	// Save specific collection
@@ -1689,7 +1689,7 @@ func TestStorageEngine_PerCollectionConcurrency(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			doc := domain.Document{"id": id, "collection": "coll1"}
-			err := engine.Insert("coll1", doc)
+			_, err := engine.Insert("coll1", doc)
 			if err != nil {
 				results <- fmt.Sprintf("coll1-insert-error-%d: %v", id, err)
 			} else {
@@ -1701,7 +1701,7 @@ func TestStorageEngine_PerCollectionConcurrency(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			doc := domain.Document{"id": id, "collection": "coll2"}
-			err := engine.Insert("coll2", doc)
+			_, err := engine.Insert("coll2", doc)
 			if err != nil {
 				results <- fmt.Sprintf("coll2-insert-error-%d: %v", id, err)
 			} else {
@@ -1753,7 +1753,7 @@ func TestStorageEngine_ConcurrentReadsDuringWrite(t *testing.T) {
 			"name": fmt.Sprintf("User%d", i),
 			"age":  20 + i,
 		}
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -1788,7 +1788,7 @@ func TestStorageEngine_ConcurrentReadsDuringWrite(t *testing.T) {
 					"name": fmt.Sprintf("NewUser%d-%d", writerID, j),
 					"age":  30 + writerID + j,
 				}
-				err := engine.Insert("users", doc)
+				_, err := engine.Insert("users", doc)
 				if err != nil {
 					results <- fmt.Sprintf("write-error-%d-%d: %v", writerID, j, err)
 				} else {
@@ -1847,7 +1847,7 @@ func TestStorageEngine_BackgroundSaveIntegration(t *testing.T) {
 			"name": fmt.Sprintf("User%d", i),
 			"age":  20 + i,
 		}
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -1871,7 +1871,7 @@ func TestStorageEngine_BackgroundSaveIntegration(t *testing.T) {
 			"name": fmt.Sprintf("User%d", i),
 			"age":  20 + i,
 		}
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -1909,7 +1909,7 @@ func TestStorageEngine_CollectionLockCreation(t *testing.T) {
 
 	// Insert a document (which should create a lock)
 	doc := domain.Document{"name": "Test"}
-	err = engine.Insert("test", doc)
+	_, err = engine.Insert("test", doc)
 	require.NoError(t, err)
 
 	// Now there should be a lock for the collection
@@ -2001,7 +2001,7 @@ func TestStorageEngine_SaveCollectionAfterTransaction(t *testing.T) {
 	require.NoError(t, err)
 
 	doc := domain.Document{"name": "Test", "value": 42}
-	err = engine.Insert("test", doc)
+	_, err = engine.Insert("test", doc)
 	require.NoError(t, err)
 
 	// Collection should be dirty after insert
@@ -2044,7 +2044,7 @@ func TestStorageEngine_SaveCollectionAfterTransaction_Disabled(t *testing.T) {
 	require.NoError(t, err)
 
 	doc := domain.Document{"name": "Test", "value": 42}
-	err = engine.Insert("test", doc)
+	_, err = engine.Insert("test", doc)
 	require.NoError(t, err)
 
 	// Try to trigger transaction save - should do nothing
@@ -2118,7 +2118,7 @@ func TestStorageEngine_BatchInsert(t *testing.T) {
 			{"name": "Charlie", "age": 35},
 		}
 
-		err := engine.BatchInsert("users", docs)
+		_, err := engine.BatchInsert("users", docs)
 		require.NoError(t, err)
 
 		// Verify documents were inserted
@@ -2144,7 +2144,7 @@ func TestStorageEngine_BatchInsert(t *testing.T) {
 			{"product": "Gadget", "price": 25.50},
 		}
 
-		err := engine.BatchInsert("products", docs)
+		_, err := engine.BatchInsert("products", docs)
 		require.NoError(t, err)
 
 		// Check collection state is dirty
@@ -2161,7 +2161,7 @@ func TestStorageEngine_BatchInsert(t *testing.T) {
 			{"item": "test"},
 		}
 
-		err := engine.BatchInsert("new_collection", docs)
+		_, err := engine.BatchInsert("new_collection", docs)
 		require.NoError(t, err)
 
 		// Verify collection was created
@@ -2177,7 +2177,7 @@ func TestStorageEngine_BatchInsert(t *testing.T) {
 	})
 
 	t.Run("Batch Insert Empty Docs", func(t *testing.T) {
-		err := engine.BatchInsert("test", []domain.Document{})
+		_, err := engine.BatchInsert("test", []domain.Document{})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no documents provided")
 	})
@@ -2188,7 +2188,7 @@ func TestStorageEngine_BatchInsert(t *testing.T) {
 			docs[i] = domain.Document{"id": i}
 		}
 
-		err := engine.BatchInsert("test", docs)
+		_, err := engine.BatchInsert("test", docs)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "limited to 1000 documents")
 	})
@@ -2199,7 +2199,7 @@ func TestStorageEngine_BatchInsert(t *testing.T) {
 			docs[i] = domain.Document{"id": i, "value": i * 2}
 		}
 
-		err := engine.BatchInsert("large_batch", docs)
+		_, err := engine.BatchInsert("large_batch", docs)
 		require.NoError(t, err)
 
 		// Verify a few random documents
@@ -2228,7 +2228,7 @@ func TestStorageEngine_BatchUpdate(t *testing.T) {
 		{"name": "Bob", "age": 25, "department": "Sales"},
 		{"name": "Charlie", "age": 35, "department": "Engineering"},
 	}
-	err = engine.BatchInsert("employees", initialDocs)
+	_, err = engine.BatchInsert("employees", initialDocs)
 	require.NoError(t, err)
 
 	t.Run("Basic Batch Update", func(t *testing.T) {
@@ -2365,7 +2365,7 @@ func TestStorageEngine_BatchOperations_WithIndexes(t *testing.T) {
 			{"name": "Charlie", "age": 30}, // Same age as Alice
 		}
 
-		err := engine.BatchInsert("users", docs)
+		_, err := engine.BatchInsert("users", docs)
 		require.NoError(t, err)
 
 		// Verify indexes were created by checking that documents can be found
@@ -2411,7 +2411,7 @@ func TestStorageEngine_BatchOperations_WithTransactionSaves(t *testing.T) {
 			{"name": "Test2"},
 		}
 
-		err := engine.BatchInsert("test_saves", docs)
+		_, err := engine.BatchInsert("test_saves", docs)
 		require.NoError(t, err)
 
 		// Check collection is dirty
@@ -2487,7 +2487,7 @@ func TestStorageEngine_BatchOperations_Concurrency(t *testing.T) {
 				}
 
 				collName := fmt.Sprintf("concurrent_coll_%d", routineID)
-				err := engine.BatchInsert(collName, docs)
+				_, err := engine.BatchInsert(collName, docs)
 				if err != nil {
 					errors <- err
 				}
@@ -2521,7 +2521,7 @@ func TestStorageEngine_BatchOperations_Concurrency(t *testing.T) {
 		for i := 0; i < 20; i++ {
 			initialDocs[i] = domain.Document{"id": i, "value": i}
 		}
-		err := engine.BatchInsert("shared_coll", initialDocs)
+		_, err := engine.BatchInsert("shared_coll", initialDocs)
 		require.NoError(t, err)
 
 		const numReaders = 3
@@ -2601,7 +2601,7 @@ func TestStorageEngine_BatchInsert_Atomic(t *testing.T) {
 			{"name": "Charlie", "age": 35},
 		}
 
-		err := engine.BatchInsert("users", docs)
+		_, err := engine.BatchInsert("users", docs)
 		require.NoError(t, err)
 
 		// Verify all documents were inserted
@@ -2620,7 +2620,7 @@ func TestStorageEngine_BatchInsert_Atomic(t *testing.T) {
 	t.Run("Atomic Failure - ID Conflict Prevention", func(t *testing.T) {
 		// Insert an initial document to set up the ID counter
 		initialDoc := domain.Document{"name": "Initial", "age": 40}
-		err := engine.Insert("products", initialDoc)
+		_, err := engine.Insert("products", initialDoc)
 		require.NoError(t, err)
 
 		// Get the current state before batch insert
@@ -2640,7 +2640,7 @@ func TestStorageEngine_BatchInsert_Atomic(t *testing.T) {
 			{"name": "Product C", "price": 300},
 		}
 
-		err = engine.BatchInsert("products", docs)
+		_, err = engine.BatchInsert("products", docs)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "already exists")
 
@@ -2671,7 +2671,7 @@ func TestStorageEngine_BatchInsert_Atomic(t *testing.T) {
 		_, err := engine.GetCollection("empty_test")
 		assert.Error(t, err) // Collection shouldn't exist
 
-		err = engine.BatchInsert("empty_test", []domain.Document{})
+		_, err = engine.BatchInsert("empty_test", []domain.Document{})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no documents provided")
 
@@ -2685,7 +2685,7 @@ func TestStorageEngine_BatchInsert_Atomic(t *testing.T) {
 			tooManyDocs[i] = domain.Document{"id": i}
 		}
 
-		err = engine.BatchInsert("large_test", tooManyDocs)
+		_, err = engine.BatchInsert("large_test", tooManyDocs)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "limited to 1000 documents")
 
@@ -2711,7 +2711,7 @@ func TestStorageEngine_BatchUpdate_Atomic(t *testing.T) {
 		{"name": "Diana", "age": 28, "department": "Engineering"},
 	}
 
-	err = engine.BatchInsert("employees", initialDocs)
+	_, err = engine.BatchInsert("employees", initialDocs)
 	require.NoError(t, err)
 
 	t.Run("Atomic Success - All Updates Applied", func(t *testing.T) {

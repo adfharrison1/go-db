@@ -22,7 +22,7 @@ func TestDebugCursorPagination(t *testing.T) {
 			"name": fmt.Sprintf("user%d", i),
 			"age":  i * 10,
 		}
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 

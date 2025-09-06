@@ -23,7 +23,7 @@ func TestPagination_OffsetBased(t *testing.T) {
 			"name": fmt.Sprintf("user%d", i),
 			"age":  i * 10,
 		}
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -117,7 +117,7 @@ func TestPagination_CursorBased(t *testing.T) {
 			"name": fmt.Sprintf("user%d", i),
 			"age":  i * 10,
 		}
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -172,7 +172,7 @@ func TestPagination_WithFilter(t *testing.T) {
 			"name": fmt.Sprintf("user%d", i),
 			"age":  i % 5, // 0, 1, 2, 3, 4 repeating
 		}
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -246,7 +246,7 @@ func TestPagination_Streaming(t *testing.T) {
 			"name": fmt.Sprintf("user%d", i),
 			"age":  i * 10,
 		}
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -300,7 +300,7 @@ func TestPagination_MaxLimit(t *testing.T) {
 		doc := domain.Document{
 			"name": fmt.Sprintf("user%d", i),
 		}
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 

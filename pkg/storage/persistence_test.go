@@ -29,7 +29,7 @@ func TestStorageEngine_SaveToFile(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -61,7 +61,7 @@ func TestStorageEngine_LoadCollectionMetadata(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err := engine1.Insert("users", doc)
+		_, err := engine1.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -167,12 +167,12 @@ func TestStorageEngine_SaveToFile_MultipleCollections(t *testing.T) {
 	}
 
 	for _, doc := range users {
-		err := engine.Insert("users", doc)
+		_, err := engine.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
 	for _, doc := range products {
-		err := engine.Insert("products", doc)
+		_, err := engine.Insert("products", doc)
 		require.NoError(t, err)
 	}
 
@@ -209,7 +209,7 @@ func TestStorageEngine_SaveToFile_PermissionError(t *testing.T) {
 
 	// Insert some data
 	doc := domain.Document{"test": "data"}
-	err := engine.Insert("test", doc)
+	_, err := engine.Insert("test", doc)
 	require.NoError(t, err)
 
 	// Try to save to non-existent directory
@@ -236,7 +236,7 @@ func TestStorageEngine_LoadCollectionFromDisk(t *testing.T) {
 	}
 
 	for _, doc := range docs {
-		err = engine1.Insert("users", doc)
+		_, err = engine1.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -272,7 +272,7 @@ func TestStorageEngine_SaveToFile_ConcurrentAccess(t *testing.T) {
 					"doc_id":    j,
 					"data":      "concurrent test",
 				}
-				err := engine.Insert("concurrent", doc)
+				_, err := engine.Insert("concurrent", doc)
 				require.NoError(t, err)
 			}
 		}(i)
@@ -299,7 +299,7 @@ func TestStorageEngine_FileFormatCompatibility(t *testing.T) {
 
 	// Insert test data
 	doc := domain.Document{"name": "Test", "value": 42}
-	err := engine.Insert("test", doc)
+	_, err := engine.Insert("test", doc)
 	require.NoError(t, err)
 
 	// Save to file
@@ -348,7 +348,7 @@ func TestStorageEngine_SaveDirtyCollections_FileOperations(t *testing.T) {
 				"id":         i,
 				"data":       fmt.Sprintf("test-data-%s-%d", collName, i),
 			}
-			err := engine.Insert(collName, doc)
+			_, err := engine.Insert(collName, doc)
 			require.NoError(t, err)
 		}
 	}
@@ -427,7 +427,7 @@ func TestStorageEngine_SaveCollectionToFile_DataIntegrity(t *testing.T) {
 	}
 
 	for _, doc := range testDocs {
-		err := engine.Insert("complex", doc)
+		_, err := engine.Insert("complex", doc)
 		require.NoError(t, err)
 	}
 
@@ -501,7 +501,7 @@ func TestStorageEngine_SaveCollectionToFile_ErrorHandling(t *testing.T) {
 
 	// Insert a document
 	doc := domain.Document{"name": "Test"}
-	err = engine.Insert("test", doc)
+	_, err = engine.Insert("test", doc)
 	require.NoError(t, err)
 
 	// Try to save to invalid path - should handle error gracefully
@@ -538,7 +538,7 @@ func TestStorageEngine_SaveDirtyCollections_ConcurrentAccess(t *testing.T) {
 					"iteration": j,
 					"data":      fmt.Sprintf("data-%d-%d", id, j),
 				}
-				err := engine.Insert("concurrent", doc)
+				_, err := engine.Insert("concurrent", doc)
 				if err != nil {
 					results <- fmt.Sprintf("insert-error-%d-%d: %v", id, j, err)
 				} else {
@@ -604,7 +604,7 @@ func TestStorageEngine_LoadCollectionFromDisk_Integration(t *testing.T) {
 	}
 
 	for _, doc := range originalDocs {
-		err := engine1.Insert("shared", doc)
+		_, err := engine1.Insert("shared", doc)
 		require.NoError(t, err)
 	}
 
@@ -648,7 +648,7 @@ func TestStorageEngine_IDCounterRestoration(t *testing.T) {
 	// Insert documents with sequential IDs
 	for i := 1; i <= 5; i++ {
 		doc := domain.Document{"name": fmt.Sprintf("User %d", i), "value": i * 10}
-		err := engine1.Insert("users", doc)
+		_, err := engine1.Insert("users", doc)
 		require.NoError(t, err)
 	}
 
@@ -684,7 +684,7 @@ func TestStorageEngine_IDCounterRestoration(t *testing.T) {
 
 	// Phase 3: Insert new document - should get ID "6", not "1"
 	newDoc := domain.Document{"name": "User 6", "value": 60}
-	err = engine2.Insert("users", newDoc)
+	_, err = engine2.Insert("users", newDoc)
 	require.NoError(t, err)
 
 	// Verify the new document got ID "6"
@@ -702,7 +702,7 @@ func TestStorageEngine_IDCounterRestoration(t *testing.T) {
 
 	// Insert another document - should get ID "7"
 	anotherDoc := domain.Document{"name": "User 7", "value": 70}
-	err = engine2.Insert("users", anotherDoc)
+	_, err = engine2.Insert("users", anotherDoc)
 	require.NoError(t, err)
 
 	doc7, err := engine2.GetById("users", "7")
@@ -761,7 +761,7 @@ func TestStorageEngine_IDCounterRestoration_NonSequential(t *testing.T) {
 
 	// Insert new document - should get ID "16", not "1"
 	newDoc := domain.Document{"name": "Product 16"}
-	err = engine2.Insert("products", newDoc)
+	_, err = engine2.Insert("products", newDoc)
 	require.NoError(t, err)
 
 	doc16, err := engine2.GetById("products", "16")
@@ -785,7 +785,7 @@ func TestStorageEngine_IDCounterRestoration_EmptyCollection(t *testing.T) {
 
 	// Add a document, then delete it to create an empty collection that gets saved
 	doc := domain.Document{"temp": "temp"}
-	err = engine1.Insert("empty", doc)
+	_, err = engine1.Insert("empty", doc)
 	require.NoError(t, err)
 	err = engine1.DeleteById("empty", "1")
 	require.NoError(t, err)
@@ -813,7 +813,7 @@ func TestStorageEngine_IDCounterRestoration_EmptyCollection(t *testing.T) {
 
 	// Insert first document - should get ID "1" since collection is truly empty
 	firstDoc := domain.Document{"name": "First Document"}
-	err = engine2.Insert("empty", firstDoc)
+	_, err = engine2.Insert("empty", firstDoc)
 	require.NoError(t, err)
 
 	doc1, err := engine2.GetById("empty", "1")
@@ -872,7 +872,7 @@ func TestStorageEngine_IDCounterRestoration_NonNumericIDs(t *testing.T) {
 
 	// Insert new document - should get ID "11" (ignoring non-numeric IDs)
 	newDoc := domain.Document{"name": "Numeric 11"}
-	err = engine2.Insert("mixed", newDoc)
+	_, err = engine2.Insert("mixed", newDoc)
 	require.NoError(t, err)
 
 	doc11, err := engine2.GetById("mixed", "11")
@@ -905,7 +905,7 @@ func TestStorageEngine_IDCounterRestoration_BatchOperations(t *testing.T) {
 		docs[i] = domain.Document{"name": fmt.Sprintf("Batch Doc %d", i+1), "value": (i + 1) * 5}
 	}
 
-	err = engine1.BatchInsert("batch_test", docs)
+	_, err = engine1.BatchInsert("batch_test", docs)
 	require.NoError(t, err)
 
 	// Save to disk
@@ -936,7 +936,7 @@ func TestStorageEngine_IDCounterRestoration_BatchOperations(t *testing.T) {
 		moreDocs[i] = domain.Document{"name": fmt.Sprintf("Second Batch Doc %d", i+1), "value": (i + 11) * 5}
 	}
 
-	err = engine2.BatchInsert("batch_test", moreDocs)
+	_, err = engine2.BatchInsert("batch_test", moreDocs)
 	require.NoError(t, err)
 
 	// Verify new documents got IDs "11" through "15"
