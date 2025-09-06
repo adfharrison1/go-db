@@ -209,7 +209,7 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 		assert.Equal(t, 400, resp.StatusCode)
 	})
 
-	t.Run("Batch Update - Partial Failures", func(t *testing.T) {
+	t.Run("Batch Update - Atomic Failure", func(t *testing.T) {
 		// Insert some documents first
 		documents := []map[string]interface{}{
 			{"name": "Alice", "value": 1},
@@ -222,26 +222,24 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 		assert.Equal(t, 201, resp.StatusCode)
 
 		// Try to update some existing and some non-existing documents
+		// This should fail atomically - no updates should be applied
 		operations := []BatchUpdateOperation{
-			{ID: "1", Updates: map[string]interface{}{"value": 10}},   // Should succeed
-			{ID: "999", Updates: map[string]interface{}{"value": 20}}, // Should fail
-			{ID: "2", Updates: map[string]interface{}{"value": 30}},   // Should succeed
-			{ID: "998", Updates: map[string]interface{}{"value": 40}}, // Should fail
+			{ID: "1", Updates: map[string]interface{}{"value": 10}},   // Valid
+			{ID: "999", Updates: map[string]interface{}{"value": 20}}, // Invalid - doesn't exist
+			{ID: "2", Updates: map[string]interface{}{"value": 30}},   // Valid but won't be applied due to atomic failure
+			{ID: "998", Updates: map[string]interface{}{"value": 40}}, // Invalid - doesn't exist
 		}
 
 		updateReq := BatchUpdateRequest{Operations: operations}
 		resp, err = ts.PATCH("/collections/partial_test/batch", updateReq)
 		require.NoError(t, err)
 
-		// Should return partial content status or handle errors appropriately
-		assert.True(t, resp.StatusCode == 200 || resp.StatusCode == 206 || resp.StatusCode == 500)
+		// Should return 500 for atomic failure (document not found)
+		assert.Equal(t, 500, resp.StatusCode)
 
 		body, err := ReadResponseBody(resp)
 		require.NoError(t, err)
-
-		// The exact response format will depend on how we handle partial failures
-		// This test verifies the endpoint handles mixed success/failure scenarios
-		assert.NotEmpty(t, body)
+		assert.Contains(t, body, "document with id 999 not found")
 	})
 
 	t.Run("Batch Operations - Transaction Saves", func(t *testing.T) {

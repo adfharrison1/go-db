@@ -318,7 +318,7 @@ Content-Type: application/json
 }
 ```
 
-**Response**: `200 OK` (all successful) or `206 Partial Content` (some failures)
+**Response**: `200 OK` (all successful) or `500 Internal Server Error` (any failures)
 
 ```json
 {
@@ -352,34 +352,9 @@ Content-Type: application/json
 }
 ```
 
-For partial failures:
+**Atomic Behavior**: Batch updates are atomic - either all operations succeed or none are applied. If any document in the batch doesn't exist or any operation fails, the entire batch operation fails and no changes are made.
 
-```json
-{
-  "success": true,
-  "message": "Batch update completed with some errors",
-  "updated_count": 2,
-  "failed_count": 1,
-  "collection": "users",
-  "documents": [
-    {
-      "_id": "1",
-      "name": "Alice",
-      "age": 31,
-      "salary": 75000,
-      "department": "Senior Engineering"
-    },
-    {
-      "_id": "2",
-      "name": "Bob",
-      "age": 26,
-      "salary": 60000,
-      "position": "Sales Manager"
-    }
-  ],
-  "errors": ["operation 1: document with id 999 not found"]
-}
-```
+**Error Response**: If any operation fails, the API returns `500 Internal Server Error` with an error message indicating which operation failed.
 
 #### Delete Document
 

@@ -67,7 +67,7 @@ resp, err := ts.POST("/collections/users", userDocument)
 - **Batch Update**: Tests updating multiple documents by ID and verifies all updated documents are returned
 - **Large Batches**: Tests performance with 500+ documents
 - **Validation Errors**: Tests limits (1000 docs max) and empty requests
-- **Partial Failures**: Tests mixed success/failure scenarios
+- **Atomic Failures**: Tests atomic failure behavior when any operation fails
 - **Transaction Saves**: Verifies batch operations trigger persistence correctly
 
 ## Usage Examples

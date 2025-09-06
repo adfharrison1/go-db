@@ -79,25 +79,10 @@ func (h *Handler) HandleBatchUpdate(w http.ResponseWriter, r *http.Request) {
 	response.Collection = collName
 
 	if err != nil {
-		// Check if this is a partial failure (some succeeded, some failed)
-		if errorMsg := err.Error(); len(errorMsg) > 0 {
-			log.Printf("WARN: Batch update had errors: %v", err)
-
-			// For partial failures, we still return 200 but include error details
-			response.Success = true // At least some succeeded if we got here
-			response.Message = "Batch update completed with some errors"
-			response.Errors = []string{errorMsg}
-
-			// Try to extract counts from error message
-			// This is a simplified approach - in production you might want structured error handling
-			response.UpdatedCount = len(domainOps) // Will be adjusted below if we can parse errors
-			response.FailedCount = 0
-		} else {
-			// Complete failure
-			log.Printf("ERROR: Batch update failed for collection '%s': %v", collName, err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+		// Atomic failure - all operations failed
+		log.Printf("ERROR: Batch update failed for collection '%s': %v", collName, err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	} else {
 		// Complete success
 		response.Success = true
