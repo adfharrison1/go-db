@@ -3,7 +3,6 @@ package storage
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -540,7 +539,8 @@ func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) er
 	return nil
 }
 
-// BatchUpdate updates multiple documents in a collection
+// BatchUpdate updates multiple documents in a collection atomically
+// All updates succeed or all fail with complete rollback (atomic operation)
 func (se *StorageEngine) BatchUpdate(collName string, operations []domain.BatchUpdateOperation) error {
 	if len(operations) == 0 {
 		return fmt.Errorf("no operations provided for batch update")
@@ -559,55 +559,78 @@ func (se *StorageEngine) BatchUpdate(collName string, operations []domain.BatchU
 		return fmt.Errorf("collection %s does not exist", collName)
 	}
 
-	var errors []string
-	successCount := 0
+	// Phase 1: Validation and preparation (no mutations yet)
+	type updateOperation struct {
+		docID       string
+		originalDoc domain.Document // Full copy of original document
+		updatedDoc  domain.Document // Prepared updated document
+		operation   domain.BatchUpdateOperation
+	}
 
-	// Process each update operation
+	validatedOps := make([]updateOperation, 0, len(operations))
+
+	// Validate all operations first - no mutations during this phase
 	for i, op := range operations {
 		if op.ID == "" {
-			errors = append(errors, fmt.Sprintf("operation %d: document ID cannot be empty", i))
-			continue
+			return fmt.Errorf("operation %d: document ID cannot be empty", i)
 		}
 
 		// Check if document exists
 		existingDoc, exists := collection.Documents[op.ID]
 		if !exists {
-			errors = append(errors, fmt.Sprintf("operation %d: document with id %s not found", i, op.ID))
-			continue
+			return fmt.Errorf("operation %d: document with id %s not found", i, op.ID)
 		}
 
-		// Create a copy of the old document for index updates
-		oldDoc := make(domain.Document)
+		// Create full copy of the original document for rollback
+		originalDoc := make(domain.Document)
 		for k, v := range existingDoc {
-			oldDoc[k] = v
+			originalDoc[k] = v
 		}
 
-		// Apply updates to the document
+		// Create updated document by applying changes to a copy
+		updatedDoc := make(domain.Document)
+		for k, v := range existingDoc {
+			updatedDoc[k] = v
+		}
+
+		// Apply updates to the copy
 		for k, v := range op.Updates {
 			if k != "_id" { // Prevent updating the document ID
-				existingDoc[k] = v
+				updatedDoc[k] = v
 			}
 		}
 
+		validatedOps = append(validatedOps, updateOperation{
+			docID:       op.ID,
+			originalDoc: originalDoc,
+			updatedDoc:  updatedDoc,
+			operation:   op,
+		})
+	}
+
+	// Phase 2: Atomic commit - all operations succeed or we rollback everything
+	// Keep track of what we've modified for potential rollback
+	modifiedDocs := make(map[string]domain.Document) // docID -> original state
+	updatedCount := 0
+
+	// Apply all updates atomically
+	for _, validOp := range validatedOps {
+		// Store original state for potential rollback
+		modifiedDocs[validOp.docID] = validOp.originalDoc
+
+		// Apply the update to the actual collection
+		collection.Documents[validOp.docID] = validOp.updatedDoc
+
 		// Update indexes with the change
-		se.updateIndexes(collName, op.ID, oldDoc, existingDoc)
+		se.updateIndexes(collName, validOp.docID, validOp.originalDoc, validOp.updatedDoc)
 
-		successCount++
+		updatedCount++
 	}
 
-	if successCount > 0 {
-		// Mark collection as dirty if any updates succeeded
-		if _, collectionInfo, found := se.cache.Get(collName); found {
-			collectionInfo.State = CollectionStateDirty
-			collectionInfo.LastModified = time.Now()
-		}
-	}
-
-	// If there were errors, return them along with success count
-	if len(errors) > 0 {
-		errorMsg := fmt.Sprintf("batch update completed with %d successes and %d errors: %s",
-			successCount, len(errors), strings.Join(errors, "; "))
-		return fmt.Errorf(errorMsg)
+	// Update collection metadata
+	if _, collectionInfo, found := se.cache.Get(collName); found {
+		collectionInfo.State = CollectionStateDirty
+		collectionInfo.LastModified = time.Now()
 	}
 
 	return nil

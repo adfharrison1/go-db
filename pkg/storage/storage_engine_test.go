@@ -2268,25 +2268,31 @@ func TestStorageEngine_BatchUpdate(t *testing.T) {
 		assert.Equal(t, "test", doc["newfield"])
 	})
 
-	t.Run("Batch Update Partial Failures", func(t *testing.T) {
+	t.Run("Batch Update Atomic Failures", func(t *testing.T) {
+		// Store original state to verify no changes occurred
+		doc1Before, err := engine.GetById("employees", "1")
+		require.NoError(t, err)
+		doc2Before, err := engine.GetById("employees", "2")
+		require.NoError(t, err)
+
 		operations := []domain.BatchUpdateOperation{
-			{ID: "1", Updates: domain.Document{"status": "updated"}},  // Should succeed
-			{ID: "999", Updates: domain.Document{"status": "failed"}}, // Should fail
-			{ID: "2", Updates: domain.Document{"status": "updated"}},  // Should succeed
+			{ID: "1", Updates: domain.Document{"status": "updated"}},  // Valid
+			{ID: "999", Updates: domain.Document{"status": "failed"}}, // Invalid - atomic failure
+			{ID: "2", Updates: domain.Document{"status": "updated"}},  // Valid but not applied
 		}
 
-		err := engine.BatchUpdate("employees", operations)
+		err = engine.BatchUpdate("employees", operations)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "2 successes and 1 errors")
+		assert.Contains(t, err.Error(), "document with id 999 not found")
 
-		// Verify successful updates
-		doc1, err := engine.GetById("employees", "1")
+		// Verify NO updates were applied (atomic behavior)
+		doc1After, err := engine.GetById("employees", "1")
 		require.NoError(t, err)
-		assert.Equal(t, "updated", doc1["status"])
+		assert.Equal(t, doc1Before, doc1After) // Should be unchanged
 
-		doc2, err := engine.GetById("employees", "2")
+		doc2After, err := engine.GetById("employees", "2")
 		require.NoError(t, err)
-		assert.Equal(t, "updated", doc2["status"])
+		assert.Equal(t, doc2Before, doc2After) // Should be unchanged
 	})
 
 	t.Run("Batch Update Empty Operations", func(t *testing.T) {
@@ -2319,16 +2325,24 @@ func TestStorageEngine_BatchUpdate(t *testing.T) {
 		assert.Contains(t, err.Error(), "does not exist")
 	})
 
-	t.Run("Batch Update Empty ID", func(t *testing.T) {
+	t.Run("Batch Update Empty ID Atomic Failure", func(t *testing.T) {
+		// Store original state to verify no changes occurred
+		doc1Before, err := engine.GetById("employees", "1")
+		require.NoError(t, err)
+
 		operations := []domain.BatchUpdateOperation{
 			{ID: "", Updates: domain.Document{"field": "value"}},
-			{ID: "1", Updates: domain.Document{"field": "value"}}, // Valid one
+			{ID: "1", Updates: domain.Document{"field": "value"}}, // Valid but not applied due to atomic failure
 		}
 
-		err := engine.BatchUpdate("employees", operations)
+		err = engine.BatchUpdate("employees", operations)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "document ID cannot be empty")
-		assert.Contains(t, err.Error(), "1 successes and 1 errors")
+
+		// Verify NO updates were applied (atomic behavior)
+		doc1After, err := engine.GetById("employees", "1")
+		require.NoError(t, err)
+		assert.Equal(t, doc1Before, doc1After) // Should be unchanged
 	})
 }
 
@@ -2678,5 +2692,200 @@ func TestStorageEngine_BatchInsert_Atomic(t *testing.T) {
 		// Verify no collection was created
 		_, exists = engine.collections["large_test"]
 		assert.False(t, exists)
+	})
+}
+
+func TestStorageEngine_BatchUpdate_Atomic(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-batch-update-atomic-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	engine := NewStorageEngine(WithDataDir(tempDir))
+	defer engine.StopBackgroundWorkers()
+
+	// Setup: Insert some initial documents to update
+	initialDocs := []domain.Document{
+		{"name": "Alice", "age": 30, "department": "Engineering"},
+		{"name": "Bob", "age": 25, "department": "Sales"},
+		{"name": "Charlie", "age": 35, "department": "Marketing"},
+		{"name": "Diana", "age": 28, "department": "Engineering"},
+	}
+
+	err = engine.BatchInsert("employees", initialDocs)
+	require.NoError(t, err)
+
+	t.Run("Atomic Success - All Updates Applied", func(t *testing.T) {
+		operations := []domain.BatchUpdateOperation{
+			{ID: "1", Updates: domain.Document{"age": 31, "salary": 75000}},
+			{ID: "2", Updates: domain.Document{"age": 26, "position": "Senior Sales Rep"}},
+			{ID: "3", Updates: domain.Document{"department": "Product Marketing"}},
+		}
+
+		err := engine.BatchUpdate("employees", operations)
+		require.NoError(t, err)
+
+		// Verify all updates were applied
+		doc1, err := engine.GetById("employees", "1")
+		require.NoError(t, err)
+		assert.Equal(t, 31, doc1["age"])
+		assert.Equal(t, 75000, doc1["salary"])
+		assert.Equal(t, "Alice", doc1["name"]) // Original field preserved
+
+		doc2, err := engine.GetById("employees", "2")
+		require.NoError(t, err)
+		assert.Equal(t, 26, doc2["age"])
+		assert.Equal(t, "Senior Sales Rep", doc2["position"])
+		assert.Equal(t, "Bob", doc2["name"]) // Original field preserved
+
+		doc3, err := engine.GetById("employees", "3")
+		require.NoError(t, err)
+		assert.Equal(t, "Product Marketing", doc3["department"])
+		assert.Equal(t, "Charlie", doc3["name"]) // Original field preserved
+	})
+
+	t.Run("Atomic Failure - Document Not Found", func(t *testing.T) {
+		// Store original state before attempted batch update
+		doc1Before, err := engine.GetById("employees", "1")
+		require.NoError(t, err)
+		doc2Before, err := engine.GetById("employees", "2")
+		require.NoError(t, err)
+
+		operations := []domain.BatchUpdateOperation{
+			{ID: "1", Updates: domain.Document{"age": 99}},   // Valid
+			{ID: "999", Updates: domain.Document{"age": 99}}, // Invalid - doesn't exist
+			{ID: "2", Updates: domain.Document{"age": 99}},   // Valid but should not be applied
+		}
+
+		err = engine.BatchUpdate("employees", operations)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "document with id 999 not found")
+
+		// Verify NO updates were applied (atomic rollback)
+		doc1After, err := engine.GetById("employees", "1")
+		require.NoError(t, err)
+		assert.Equal(t, doc1Before, doc1After) // Should be identical
+
+		doc2After, err := engine.GetById("employees", "2")
+		require.NoError(t, err)
+		assert.Equal(t, doc2Before, doc2After) // Should be identical
+	})
+
+	t.Run("Atomic Failure - Empty Document ID", func(t *testing.T) {
+		// Store original states
+		doc1Before, err := engine.GetById("employees", "1")
+		require.NoError(t, err)
+		doc2Before, err := engine.GetById("employees", "2")
+		require.NoError(t, err)
+
+		operations := []domain.BatchUpdateOperation{
+			{ID: "1", Updates: domain.Document{"age": 100}}, // Valid
+			{ID: "", Updates: domain.Document{"age": 100}},  // Invalid - empty ID
+			{ID: "2", Updates: domain.Document{"age": 100}}, // Valid but should not be applied
+		}
+
+		err = engine.BatchUpdate("employees", operations)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "document ID cannot be empty")
+
+		// Verify NO updates were applied
+		doc1After, err := engine.GetById("employees", "1")
+		require.NoError(t, err)
+		assert.Equal(t, doc1Before, doc1After)
+
+		doc2After, err := engine.GetById("employees", "2")
+		require.NoError(t, err)
+		assert.Equal(t, doc2Before, doc2After)
+	})
+
+	t.Run("Atomic Failure - Non-Existent Collection", func(t *testing.T) {
+		operations := []domain.BatchUpdateOperation{
+			{ID: "1", Updates: domain.Document{"field": "value"}},
+		}
+
+		err := engine.BatchUpdate("nonexistent", operations)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "collection nonexistent does not exist")
+	})
+
+	t.Run("ID Protection - Cannot Update _id Field", func(t *testing.T) {
+		operations := []domain.BatchUpdateOperation{
+			{ID: "1", Updates: domain.Document{"_id": "999", "age": 32}}, // Try to change ID
+		}
+
+		err := engine.BatchUpdate("employees", operations)
+		require.NoError(t, err) // Should succeed but ignore _id change
+
+		// Verify _id was NOT changed but other fields were updated
+		doc1After, err := engine.GetById("employees", "1")
+		require.NoError(t, err)
+		assert.Equal(t, "1", doc1After["_id"]) // ID unchanged
+		assert.Equal(t, 32, doc1After["age"])  // Other field updated
+	})
+
+	t.Run("Complex Update Scenario", func(t *testing.T) {
+		// Add a new field to all documents and modify existing fields
+		operations := []domain.BatchUpdateOperation{
+			{ID: "1", Updates: domain.Document{"status": "active", "age": 33}},
+			{ID: "2", Updates: domain.Document{"status": "active", "experience": "5 years"}},
+			{ID: "3", Updates: domain.Document{"status": "inactive", "age": 36}},
+			{ID: "4", Updates: domain.Document{"status": "active", "department": "HR"}},
+		}
+
+		err := engine.BatchUpdate("employees", operations)
+		require.NoError(t, err)
+
+		// Verify all complex updates
+		for i := 1; i <= 4; i++ {
+			doc, err := engine.GetById("employees", fmt.Sprintf("%d", i))
+			require.NoError(t, err)
+
+			// All should have status field
+			assert.Contains(t, doc, "status")
+
+			// Verify specific updates
+			switch i {
+			case 1:
+				assert.Equal(t, "active", doc["status"])
+				assert.Equal(t, 33, doc["age"])
+			case 2:
+				assert.Equal(t, "active", doc["status"])
+				assert.Equal(t, "5 years", doc["experience"])
+			case 3:
+				assert.Equal(t, "inactive", doc["status"])
+				assert.Equal(t, 36, doc["age"])
+			case 4:
+				assert.Equal(t, "active", doc["status"])
+				assert.Equal(t, "HR", doc["department"])
+			}
+		}
+	})
+}
+
+func TestStorageEngine_BatchUpdate_Validation(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-batch-update-validation-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	engine := NewStorageEngine(WithDataDir(tempDir))
+	defer engine.StopBackgroundWorkers()
+
+	t.Run("Empty Operations List", func(t *testing.T) {
+		err := engine.BatchUpdate("test", []domain.BatchUpdateOperation{})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no operations provided")
+	})
+
+	t.Run("Too Many Operations", func(t *testing.T) {
+		tooManyOps := make([]domain.BatchUpdateOperation, 1001)
+		for i := 0; i < 1001; i++ {
+			tooManyOps[i] = domain.BatchUpdateOperation{
+				ID:      fmt.Sprintf("%d", i),
+				Updates: domain.Document{"field": "value"},
+			}
+		}
+
+		err := engine.BatchUpdate("test", tooManyOps)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "limited to 1000 operations")
 	})
 }

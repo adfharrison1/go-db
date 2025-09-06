@@ -98,12 +98,13 @@ go run cmd/go-db.go -help
 
 ## Batch Operations
 
-For high-performance scenarios, go-db supports batch operations that can process up to 1000 documents in a single request:
+For high-performance scenarios, go-db supports **atomic batch operations** that can process up to 1000 documents in a single request:
 
 - **Batch Insert**: Insert multiple documents simultaneously with automatic ID generation
-- **Batch Update**: Update multiple documents by ID with partial failures supported
+- **Batch Update**: Update multiple documents by ID with full atomicity guarantees
 - **Performance**: Batch operations are typically 2-3x faster than individual operations
-- **Atomicity**: Each operation within a batch is processed independently (partial success possible)
+- **Atomicity**: All operations succeed or all fail (no partial success)
+- **Data Integrity**: Complete rollback on any validation failure
 - **Limits**: Maximum 1000 documents/operations per batch request
 
 **Use Cases:**
@@ -112,6 +113,7 @@ For high-performance scenarios, go-db supports batch operations that can process
 - Periodic data synchronization
 - High-throughput data processing
 - ETL pipeline endpoints
+- Critical data operations requiring consistency
 
 ## API Reference
 
