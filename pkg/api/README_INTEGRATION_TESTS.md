@@ -13,14 +13,14 @@ ts := NewTestServer(t)
 defer ts.Close(t)
 
 // Make HTTP requests
-resp, err := ts.POST("/collections/users/insert", userDocument)
+resp, err := ts.POST("/collections/users", userDocument)
 ```
 
 **Features:**
 
 - Automatic temporary directory management
 - Configurable storage options
-- Built-in HTTP client methods (GET, POST, PUT, DELETE)
+- Built-in HTTP client methods (GET, POST, PATCH, DELETE)
 - Proper cleanup of resources
 
 ### Test Coverage
@@ -29,7 +29,7 @@ resp, err := ts.POST("/collections/users/insert", userDocument)
 
 - **Insert Document**: Tests document creation via POST
 - **Get Document by ID**: Tests document retrieval via GET
-- **Update Document**: Tests document modification via PUT
+- **Update Document**: Tests document modification via PATCH
 - **Find All Documents**: Tests collection querying
 - **Delete Document**: Tests document removal via DELETE
 
@@ -81,7 +81,7 @@ func TestAPI_MyFeature(t *testing.T) {
 
     // Insert a document
     doc := map[string]interface{}{"name": "Test", "value": 42}
-    resp, err := ts.POST("/collections/test/insert", doc)
+    resp, err := ts.POST("/collections/test", doc)
     require.NoError(t, err)
     assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
@@ -139,7 +139,7 @@ func TestAPI_BatchOperations(t *testing.T) {
         },
     }
 
-    resp, err := ts.POST("/collections/employees/batch/insert", batchInsertReq)
+    resp, err := ts.POST("/collections/employees/batch", batchInsertReq)
     require.NoError(t, err)
     assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
@@ -160,7 +160,7 @@ func TestAPI_BatchOperations(t *testing.T) {
         },
     }
 
-    resp, err = ts.PUT("/collections/employees/batch/update", batchUpdateReq)
+    resp, err = ts.PATCH("/collections/employees/batch", batchUpdateReq)
     require.NoError(t, err)
     assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -190,13 +190,13 @@ func TestAPI_BatchValidation(t *testing.T) {
     }
 
     largeReq := BatchInsertRequest{Documents: tooManyDocs}
-    resp, err := ts.POST("/collections/test/batch/insert", largeReq)
+    resp, err := ts.POST("/collections/test/batch", largeReq)
     require.NoError(t, err)
     assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
     // Test empty batch
     emptyReq := BatchInsertRequest{Documents: []map[string]interface{}{}}
-    resp, err = ts.POST("/collections/test/batch/insert", emptyReq)
+    resp, err = ts.POST("/collections/test/batch", emptyReq)
     require.NoError(t, err)
     assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }

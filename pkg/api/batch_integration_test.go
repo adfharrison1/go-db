@@ -27,7 +27,7 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 		}
 
 		// Execute batch insert
-		resp, err := ts.POST("/collections/employees/batch/insert", request)
+		resp, err := ts.POST("/collections/employees/batch", request)
 		require.NoError(t, err)
 		assert.Equal(t, 201, resp.StatusCode)
 
@@ -70,7 +70,7 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 		}
 
 		insertReq := BatchInsertRequest{Documents: documents}
-		resp, err := ts.POST("/collections/staff/batch/insert", insertReq)
+		resp, err := ts.POST("/collections/staff/batch", insertReq)
 		require.NoError(t, err)
 		assert.Equal(t, 201, resp.StatusCode)
 
@@ -84,7 +84,7 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 		updateReq := BatchUpdateRequest{Operations: operations}
 
 		// Execute batch update
-		resp, err = ts.PUT("/collections/staff/batch/update", updateReq)
+		resp, err = ts.PATCH("/collections/staff/batch", updateReq)
 		require.NoError(t, err)
 		assert.Equal(t, 200, resp.StatusCode)
 
@@ -131,7 +131,7 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 
 		request := BatchInsertRequest{Documents: documents}
 
-		resp, err := ts.POST("/collections/large_batch/batch/insert", request)
+		resp, err := ts.POST("/collections/large_batch/batch", request)
 		require.NoError(t, err)
 		assert.Equal(t, 201, resp.StatusCode)
 
@@ -149,7 +149,7 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 	t.Run("Batch Insert - Validation Errors", func(t *testing.T) {
 		// Test empty documents
 		emptyReq := BatchInsertRequest{Documents: []map[string]interface{}{}}
-		resp, err := ts.POST("/collections/test/batch/insert", emptyReq)
+		resp, err := ts.POST("/collections/test/batch", emptyReq)
 		require.NoError(t, err)
 		assert.Equal(t, 400, resp.StatusCode)
 
@@ -160,7 +160,7 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 		}
 
 		largeReq := BatchInsertRequest{Documents: tooManyDocs}
-		resp, err = ts.POST("/collections/test/batch/insert", largeReq)
+		resp, err = ts.POST("/collections/test/batch", largeReq)
 		require.NoError(t, err)
 		assert.Equal(t, 400, resp.StatusCode)
 	})
@@ -168,7 +168,7 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 	t.Run("Batch Update - Validation Errors", func(t *testing.T) {
 		// Test empty operations
 		emptyReq := BatchUpdateRequest{Operations: []BatchUpdateOperation{}}
-		resp, err := ts.PUT("/collections/test/batch/update", emptyReq)
+		resp, err := ts.PATCH("/collections/test/batch", emptyReq)
 		require.NoError(t, err)
 		assert.Equal(t, 400, resp.StatusCode)
 
@@ -182,7 +182,7 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 		}
 
 		largeReq := BatchUpdateRequest{Operations: tooManyOps}
-		resp, err = ts.PUT("/collections/test/batch/update", largeReq)
+		resp, err = ts.PATCH("/collections/test/batch", largeReq)
 		require.NoError(t, err)
 		assert.Equal(t, 400, resp.StatusCode)
 	})
@@ -195,7 +195,7 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 		}
 
 		insertReq := BatchInsertRequest{Documents: documents}
-		resp, err := ts.POST("/collections/partial_test/batch/insert", insertReq)
+		resp, err := ts.POST("/collections/partial_test/batch", insertReq)
 		require.NoError(t, err)
 		assert.Equal(t, 201, resp.StatusCode)
 
@@ -208,7 +208,7 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 		}
 
 		updateReq := BatchUpdateRequest{Operations: operations}
-		resp, err = ts.PUT("/collections/partial_test/batch/update", updateReq)
+		resp, err = ts.PATCH("/collections/partial_test/batch", updateReq)
 		require.NoError(t, err)
 
 		// Should return partial content status or handle errors appropriately
@@ -232,7 +232,7 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 		}
 
 		request := BatchInsertRequest{Documents: documents}
-		resp, err := ts.POST("/collections/"+collName+"/batch/insert", request)
+		resp, err := ts.POST("/collections/"+collName+"/batch", request)
 		require.NoError(t, err)
 		assert.Equal(t, 201, resp.StatusCode)
 

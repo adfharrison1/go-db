@@ -122,7 +122,7 @@ For high-performance scenarios, go-db supports **atomic batch operations** that 
 #### Insert Document
 
 ```http
-POST /collections/{collection}/insert
+POST /collections/{collection}
 Content-Type: application/json
 
 {
@@ -139,7 +139,7 @@ Content-Type: application/json
 Insert up to 1000 documents in a single request for improved performance:
 
 ```http
-POST /collections/{collection}/batch/insert
+POST /collections/{collection}/batch
 Content-Type: application/json
 
 {
@@ -240,7 +240,7 @@ GET /collections/{collection}/documents/{id}
 #### Update Document
 
 ```http
-PUT /collections/{collection}/documents/{id}
+PATCH /collections/{collection}/documents/{id}
 Content-Type: application/json
 
 {
@@ -256,7 +256,7 @@ Content-Type: application/json
 Update up to 1000 documents in a single request using their IDs:
 
 ```http
-PUT /collections/{collection}/batch/update
+PATCH /collections/{collection}/batch
 Content-Type: application/json
 
 {
@@ -358,7 +358,7 @@ DELETE /collections/{collection}/indexes/{field}
 
 ```bash
 # Insert a document
-curl -X POST http://localhost:8080/collections/users/insert \
+curl -X POST http://localhost:8080/collections/users \
   -H "Content-Type: application/json" \
   -d '{"name": "Alice", "age": 30, "email": "alice@example.com"}'
 
@@ -378,7 +378,7 @@ curl "http://localhost:8080/collections/users/find?limit=10&after=eyJpZCI6IjEwIi
 curl http://localhost:8080/collections/users/documents/1
 
 # Update document
-curl -X PUT http://localhost:8080/collections/users/documents/1 \
+curl -X PATCH http://localhost:8080/collections/users/documents/1 \
   -H "Content-Type: application/json" \
   -d '{"age": 31}'
 

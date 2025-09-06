@@ -30,7 +30,7 @@ type BatchUpdateResponse struct {
 	Errors       []string `json:"errors,omitempty"`
 }
 
-// HandleBatchUpdate handles PUT requests to update multiple documents in collections
+// HandleBatchUpdate handles PATCH requests to update multiple documents in collections
 func (h *Handler) HandleBatchUpdate(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	collName := vars["coll"]

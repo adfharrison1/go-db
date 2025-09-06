@@ -9,7 +9,7 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// HandleUpdateById handles PUT requests to update a specific document by ID
+// HandleUpdateById handles PATCH requests to update a specific document by ID
 func (h *Handler) HandleUpdateById(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	collName := vars["coll"]

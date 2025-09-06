@@ -86,6 +86,22 @@ func (ts *TestServer) GET(path string) (*http.Response, error) {
 	return http.Get(ts.BaseURL + path)
 }
 
+func (ts *TestServer) PATCH(path string, body interface{}) (*http.Response, error) {
+	jsonData, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PATCH", ts.BaseURL+path, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	return client.Do(req)
+}
+
 func (ts *TestServer) PUT(path string, body interface{}) (*http.Response, error) {
 	jsonData, err := json.Marshal(body)
 	if err != nil {
@@ -132,7 +148,7 @@ func TestAPI_Integration_BasicCRUD(t *testing.T) {
 			"email": "alice@example.com",
 		}
 
-		resp, err := ts.POST("/collections/users/insert", user)
+		resp, err := ts.POST("/collections/users", user)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
@@ -165,7 +181,7 @@ func TestAPI_Integration_BasicCRUD(t *testing.T) {
 			"city": "New York",
 		}
 
-		resp, err := ts.PUT("/collections/users/documents/1", updates)
+		resp, err := ts.PATCH("/collections/users/documents/1", updates)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -193,7 +209,7 @@ func TestAPI_Integration_BasicCRUD(t *testing.T) {
 			"email": "bob@example.com",
 		}
 
-		resp, err := ts.POST("/collections/users/insert", user2)
+		resp, err := ts.POST("/collections/users", user2)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
@@ -243,7 +259,7 @@ func TestAPI_Integration_TransactionSaves(t *testing.T) {
 
 		// Insert document
 		user := map[string]interface{}{"name": "Test", "value": 42}
-		resp, err := ts.POST("/collections/users/insert", user)
+		resp, err := ts.POST("/collections/users", user)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
@@ -256,7 +272,7 @@ func TestAPI_Integration_TransactionSaves(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 
 		// Update document
-		resp, err = ts.PUT("/collections/users/documents/1", map[string]interface{}{"value": 43})
+		resp, err = ts.PATCH("/collections/users/documents/1", map[string]interface{}{"value": 43})
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -278,7 +294,7 @@ func TestAPI_Integration_TransactionSavesDisabled(t *testing.T) {
 
 		// Insert document
 		user := map[string]interface{}{"name": "Test", "value": 42}
-		resp, err := ts.POST("/collections/users/insert", user)
+		resp, err := ts.POST("/collections/users", user)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
@@ -303,7 +319,7 @@ func TestAPI_Integration_ErrorHandling(t *testing.T) {
 	})
 
 	t.Run("Update Non-Existent Document", func(t *testing.T) {
-		resp, err := ts.PUT("/collections/users/documents/999", map[string]interface{}{"value": 42})
+		resp, err := ts.PATCH("/collections/users/documents/999", map[string]interface{}{"value": 42})
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
@@ -315,7 +331,7 @@ func TestAPI_Integration_ErrorHandling(t *testing.T) {
 	})
 
 	t.Run("Invalid JSON in Request Body", func(t *testing.T) {
-		resp, err := http.Post(ts.BaseURL+"/collections/users/insert",
+		resp, err := http.Post(ts.BaseURL+"/collections/users",
 			"application/json", bytes.NewBuffer([]byte("{invalid json")))
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -346,7 +362,7 @@ func TestAPI_Integration_ConcurrentRequests(t *testing.T) {
 						"iteration": j,
 					}
 
-					resp, err := ts.POST("/collections/concurrent_users/insert", user)
+					resp, err := ts.POST("/collections/concurrent_users", user)
 					if err != nil {
 						errors <- err
 						return
@@ -388,7 +404,7 @@ func TestAPI_Integration_ConcurrentRequests(t *testing.T) {
 	t.Run("Concurrent Read/Write Operations", func(t *testing.T) {
 		// Insert initial document
 		initialDoc := map[string]interface{}{"name": "Initial", "counter": 0}
-		resp, err := ts.POST("/collections/readwrite/insert", initialDoc)
+		resp, err := ts.POST("/collections/readwrite", initialDoc)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
@@ -435,7 +451,7 @@ func TestAPI_Integration_ConcurrentRequests(t *testing.T) {
 						"update": j,
 					}
 
-					resp, err := ts.PUT("/collections/readwrite/documents/1", update)
+					resp, err := ts.PATCH("/collections/readwrite/documents/1", update)
 					if err != nil {
 						errors <- fmt.Errorf("writer %d: %v", writerID, err)
 						return
@@ -480,7 +496,7 @@ func TestAPI_Integration_IndexOperations(t *testing.T) {
 		}
 
 		for _, user := range users {
-			resp, err := ts.POST("/collections/employees/insert", user)
+			resp, err := ts.POST("/collections/employees", user)
 			require.NoError(t, err)
 			assert.Equal(t, http.StatusCreated, resp.StatusCode)
 		}
@@ -522,7 +538,7 @@ func TestAPI_Integration_Pagination(t *testing.T) {
 				"id":   i,
 			}
 
-			resp, err := ts.POST("/collections/paginated_users/insert", user)
+			resp, err := ts.POST("/collections/paginated_users", user)
 			require.NoError(t, err)
 			assert.Equal(t, http.StatusCreated, resp.StatusCode)
 		}

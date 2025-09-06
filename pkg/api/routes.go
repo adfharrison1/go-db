@@ -7,15 +7,15 @@ import (
 // RegisterRoutes registers all API routes with the given router
 func (h *Handler) RegisterRoutes(router *mux.Router) {
 	// Collection operations
-	router.HandleFunc("/collections/{coll}/insert", h.HandleInsert).Methods("POST")
+	router.HandleFunc("/collections/{coll}", h.HandleInsert).Methods("POST")
 
 	// Batch operations
-	router.HandleFunc("/collections/{coll}/batch/insert", h.HandleBatchInsert).Methods("POST")
-	router.HandleFunc("/collections/{coll}/batch/update", h.HandleBatchUpdate).Methods("PUT")
+	router.HandleFunc("/collections/{coll}/batch", h.HandleBatchInsert).Methods("POST")
+	router.HandleFunc("/collections/{coll}/batch", h.HandleBatchUpdate).Methods("PATCH")
 
 	// Document operations (by ID)
 	router.HandleFunc("/collections/{coll}/documents/{id}", h.HandleGetById).Methods("GET")
-	router.HandleFunc("/collections/{coll}/documents/{id}", h.HandleUpdateById).Methods("PUT")
+	router.HandleFunc("/collections/{coll}/documents/{id}", h.HandleUpdateById).Methods("PATCH")
 	router.HandleFunc("/collections/{coll}/documents/{id}", h.HandleDeleteById).Methods("DELETE")
 
 	// Find with optional filtering (query parameters)
