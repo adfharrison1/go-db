@@ -3,6 +3,8 @@ package storage
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1531,4 +1533,570 @@ func TestStorageEngine_ConcurrentDocumentOperations(t *testing.T) {
 	finalDocs, err := engine.FindAll("users", nil, nil)
 	require.NoError(t, err)
 	assert.Less(t, len(finalDocs.Documents), expectedCount)
+}
+
+// Tests for new background save and concurrency functionality
+
+func TestStorageEngine_SaveDirtyCollections(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	engine := NewStorageEngine(WithDataDir(tempDir))
+	defer engine.StopBackgroundWorkers()
+
+	// Create and populate collections
+	err = engine.CreateCollection("users")
+	require.NoError(t, err)
+	err = engine.CreateCollection("products")
+	require.NoError(t, err)
+
+	// Insert documents into users collection
+	for i := 0; i < 3; i++ {
+		doc := domain.Document{
+			"name": fmt.Sprintf("User%d", i),
+			"age":  20 + i,
+		}
+		err := engine.Insert("users", doc)
+		require.NoError(t, err)
+	}
+
+	// Insert documents into products collection
+	for i := 0; i < 2; i++ {
+		doc := domain.Document{
+			"name":  fmt.Sprintf("Product%d", i),
+			"price": 10.0 + float64(i),
+		}
+		err := engine.Insert("products", doc)
+		require.NoError(t, err)
+	}
+
+	// Both collections should be dirty
+	engine.mu.RLock()
+	usersInfo := engine.collections["users"]
+	productsInfo := engine.collections["products"]
+	engine.mu.RUnlock()
+
+	assert.Equal(t, CollectionStateDirty, usersInfo.State)
+	assert.Equal(t, CollectionStateDirty, productsInfo.State)
+
+	// Call saveDirtyCollections
+	engine.saveDirtyCollections()
+
+	// Both collections should now be clean
+	engine.mu.RLock()
+	usersInfo = engine.collections["users"]
+	productsInfo = engine.collections["products"]
+	engine.mu.RUnlock()
+
+	assert.Equal(t, CollectionStateLoaded, usersInfo.State)
+	assert.Equal(t, CollectionStateLoaded, productsInfo.State)
+
+	// Verify files were created
+	usersFile := filepath.Join(tempDir, "collections", "users.godb")
+	productsFile := filepath.Join(tempDir, "collections", "products.godb")
+
+	assert.FileExists(t, usersFile)
+	assert.FileExists(t, productsFile)
+
+	// Verify file sizes are reasonable
+	usersFileInfo, err := os.Stat(usersFile)
+	require.NoError(t, err)
+	assert.Greater(t, usersFileInfo.Size(), int64(0))
+
+	productsFileInfo, err := os.Stat(productsFile)
+	require.NoError(t, err)
+	assert.Greater(t, productsFileInfo.Size(), int64(0))
+}
+
+func TestStorageEngine_SaveDirtyCollections_NoDirtyCollections(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	engine := NewStorageEngine(WithDataDir(tempDir))
+	defer engine.StopBackgroundWorkers()
+
+	// Create collection but don't modify it
+	err = engine.CreateCollection("users")
+	require.NoError(t, err)
+
+	// Mark as loaded (not dirty)
+	engine.mu.Lock()
+	engine.collections["users"].State = CollectionStateLoaded
+	engine.mu.Unlock()
+
+	// Call saveDirtyCollections - should not create any files
+	engine.saveDirtyCollections()
+
+	// Verify no collections directory was created
+	collectionsDir := filepath.Join(tempDir, "collections")
+	_, err = os.Stat(collectionsDir)
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestStorageEngine_SaveCollectionToFile(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	engine := NewStorageEngine(WithDataDir(tempDir))
+	defer engine.StopBackgroundWorkers()
+
+	// Create and populate collection
+	err = engine.CreateCollection("test")
+	require.NoError(t, err)
+
+	doc := domain.Document{"name": "TestUser", "age": 25}
+	err = engine.Insert("test", doc)
+	require.NoError(t, err)
+
+	// Save specific collection
+	err = engine.saveCollectionToFile("test")
+	require.NoError(t, err)
+
+	// Verify file was created
+	testFile := filepath.Join(tempDir, "collections", "test.godb")
+	assert.FileExists(t, testFile)
+
+	// Verify collection state changed to loaded
+	engine.mu.RLock()
+	testInfo := engine.collections["test"]
+	engine.mu.RUnlock()
+
+	assert.Equal(t, CollectionStateLoaded, testInfo.State)
+	assert.Greater(t, testInfo.SizeOnDisk, int64(0))
+}
+
+func TestStorageEngine_PerCollectionConcurrency(t *testing.T) {
+	engine := NewStorageEngine()
+	defer engine.StopBackgroundWorkers()
+
+	// Create two collections
+	err := engine.CreateCollection("coll1")
+	require.NoError(t, err)
+	err = engine.CreateCollection("coll2")
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	results := make(chan string, 100)
+
+	// Test concurrent operations on different collections
+	for i := 0; i < 50; i++ {
+		wg.Add(2)
+
+		// Operations on collection 1
+		go func(id int) {
+			defer wg.Done()
+			doc := domain.Document{"id": id, "collection": "coll1"}
+			err := engine.Insert("coll1", doc)
+			if err != nil {
+				results <- fmt.Sprintf("coll1-insert-error-%d: %v", id, err)
+			} else {
+				results <- fmt.Sprintf("coll1-insert-success-%d", id)
+			}
+		}(i)
+
+		// Operations on collection 2
+		go func(id int) {
+			defer wg.Done()
+			doc := domain.Document{"id": id, "collection": "coll2"}
+			err := engine.Insert("coll2", doc)
+			if err != nil {
+				results <- fmt.Sprintf("coll2-insert-error-%d: %v", id, err)
+			} else {
+				results <- fmt.Sprintf("coll2-insert-success-%d", id)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(results)
+
+	// Count results
+	successCount := 0
+	errorCount := 0
+
+	for result := range results {
+		if strings.Contains(result, "success") {
+			successCount++
+		} else {
+			errorCount++
+			t.Logf("Error: %s", result)
+		}
+	}
+
+	assert.Equal(t, 100, successCount, "All operations should succeed")
+	assert.Equal(t, 0, errorCount, "No operations should fail")
+
+	// Verify final document counts
+	coll1Docs, err := engine.FindAll("coll1", nil, nil)
+	require.NoError(t, err)
+	assert.Len(t, coll1Docs.Documents, 50)
+
+	coll2Docs, err := engine.FindAll("coll2", nil, nil)
+	require.NoError(t, err)
+	assert.Len(t, coll2Docs.Documents, 50)
+}
+
+func TestStorageEngine_ConcurrentReadsDuringWrite(t *testing.T) {
+	engine := NewStorageEngine()
+	defer engine.StopBackgroundWorkers()
+
+	// Create collection with some initial data
+	err := engine.CreateCollection("users")
+	require.NoError(t, err)
+
+	// Insert initial documents
+	for i := 0; i < 10; i++ {
+		doc := domain.Document{
+			"name": fmt.Sprintf("User%d", i),
+			"age":  20 + i,
+		}
+		err := engine.Insert("users", doc)
+		require.NoError(t, err)
+	}
+
+	var wg sync.WaitGroup
+	results := make(chan string, 200) // Buffer for all possible results
+
+	// Start multiple readers
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(readerID int) {
+			defer wg.Done()
+			for j := 0; j < 5; j++ {
+				docID := fmt.Sprintf("%d", (j%10)+1) // Read docs 1-10
+				doc, err := engine.GetById("users", docID)
+				if err != nil {
+					results <- fmt.Sprintf("read-error-%d-%d: %v", readerID, j, err)
+				} else {
+					results <- fmt.Sprintf("read-success-%d-%d: %v", readerID, j, doc["name"])
+				}
+				time.Sleep(1 * time.Millisecond) // Small delay
+			}
+		}(i)
+	}
+
+	// Start some writers
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(writerID int) {
+			defer wg.Done()
+			for j := 0; j < 3; j++ {
+				doc := domain.Document{
+					"name": fmt.Sprintf("NewUser%d-%d", writerID, j),
+					"age":  30 + writerID + j,
+				}
+				err := engine.Insert("users", doc)
+				if err != nil {
+					results <- fmt.Sprintf("write-error-%d-%d: %v", writerID, j, err)
+				} else {
+					results <- fmt.Sprintf("write-success-%d-%d", writerID, j)
+				}
+				time.Sleep(2 * time.Millisecond) // Small delay
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(results)
+
+	// Analyze results
+	readSuccesses := 0
+	writeSuccesses := 0
+	errors := 0
+
+	for result := range results {
+		if strings.Contains(result, "read-success") {
+			readSuccesses++
+		} else if strings.Contains(result, "write-success") {
+			writeSuccesses++
+		} else {
+			errors++
+			t.Logf("Error: %s", result)
+		}
+	}
+
+	assert.Equal(t, 100, readSuccesses, "All reads should succeed")
+	assert.Equal(t, 15, writeSuccesses, "All writes should succeed")
+	assert.Equal(t, 0, errors, "No operations should fail")
+}
+
+func TestStorageEngine_BackgroundSaveIntegration(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	engine := NewStorageEngine(
+		WithBackgroundSave(100*time.Millisecond),
+		WithDataDir(tempDir),
+	)
+	defer engine.StopBackgroundWorkers()
+
+	// Start background workers
+	engine.StartBackgroundWorkers()
+
+	// Create collection and insert documents
+	err = engine.CreateCollection("users")
+	require.NoError(t, err)
+
+	// Insert some documents
+	for i := 0; i < 5; i++ {
+		doc := domain.Document{
+			"name": fmt.Sprintf("User%d", i),
+			"age":  20 + i,
+		}
+		err := engine.Insert("users", doc)
+		require.NoError(t, err)
+	}
+
+	// Wait for background save
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify file was created
+	usersFile := filepath.Join(tempDir, "collections", "users.godb")
+	assert.FileExists(t, usersFile)
+
+	// Verify collection is no longer dirty
+	engine.mu.RLock()
+	usersInfo := engine.collections["users"]
+	engine.mu.RUnlock()
+
+	assert.Equal(t, CollectionStateLoaded, usersInfo.State)
+
+	// Insert more documents
+	for i := 5; i < 10; i++ {
+		doc := domain.Document{
+			"name": fmt.Sprintf("User%d", i),
+			"age":  20 + i,
+		}
+		err := engine.Insert("users", doc)
+		require.NoError(t, err)
+	}
+
+	// Collection should be dirty again
+	engine.mu.RLock()
+	usersInfo = engine.collections["users"]
+	engine.mu.RUnlock()
+
+	assert.Equal(t, CollectionStateDirty, usersInfo.State)
+
+	// Wait for another background save
+	time.Sleep(200 * time.Millisecond)
+
+	// Collection should be clean again
+	engine.mu.RLock()
+	usersInfo = engine.collections["users"]
+	engine.mu.RUnlock()
+
+	assert.Equal(t, CollectionStateLoaded, usersInfo.State)
+}
+
+func TestStorageEngine_CollectionLockCreation(t *testing.T) {
+	engine := NewStorageEngine()
+	defer engine.StopBackgroundWorkers()
+
+	// Initially no locks should exist
+	engine.locksMu.RLock()
+	lockCount := len(engine.collectionLocks)
+	engine.locksMu.RUnlock()
+	assert.Equal(t, 0, lockCount)
+
+	// Create a collection
+	err := engine.CreateCollection("test")
+	require.NoError(t, err)
+
+	// Insert a document (which should create a lock)
+	doc := domain.Document{"name": "Test"}
+	err = engine.Insert("test", doc)
+	require.NoError(t, err)
+
+	// Now there should be a lock for the collection
+	lock := engine.getOrCreateCollectionLock("test")
+	assert.NotNil(t, lock)
+
+	engine.locksMu.RLock()
+	lockCount = len(engine.collectionLocks)
+	engine.locksMu.RUnlock()
+	assert.Equal(t, 1, lockCount)
+
+	// Getting the same lock should return the same instance
+	lock2 := engine.getOrCreateCollectionLock("test")
+	assert.Same(t, lock, lock2)
+}
+
+func TestStorageEngine_WithCollectionLocks(t *testing.T) {
+	engine := NewStorageEngine()
+	defer engine.StopBackgroundWorkers()
+
+	executed := false
+
+	// Test read lock
+	err := engine.withCollectionReadLock("test", func() error {
+		executed = true
+		return nil
+	})
+	require.NoError(t, err)
+	assert.True(t, executed)
+
+	executed = false
+
+	// Test write lock
+	err = engine.withCollectionWriteLock("test", func() error {
+		executed = true
+		return nil
+	})
+	require.NoError(t, err)
+	assert.True(t, executed)
+
+	// Test error propagation
+	testError := fmt.Errorf("test error")
+	err = engine.withCollectionReadLock("test", func() error {
+		return testError
+	})
+	assert.Equal(t, testError, err)
+}
+
+// Tests for transaction save functionality
+
+func TestStorageEngine_TransactionSaveEnabled(t *testing.T) {
+	// Test default behavior - transaction saves should be enabled
+	engine := NewStorageEngine()
+	defer engine.StopBackgroundWorkers()
+
+	assert.True(t, engine.IsTransactionSaveEnabled(), "Transaction saves should be enabled by default")
+}
+
+func TestStorageEngine_TransactionSaveDisabled(t *testing.T) {
+	// Test with transaction saves explicitly disabled
+	engine := NewStorageEngine(WithTransactionSave(false))
+	defer engine.StopBackgroundWorkers()
+
+	assert.False(t, engine.IsTransactionSaveEnabled(), "Transaction saves should be disabled when set to false")
+}
+
+func TestStorageEngine_BackgroundSaveDisablesTransactionSave(t *testing.T) {
+	// Test that background saves disable transaction saves
+	engine := NewStorageEngine(WithBackgroundSave(5 * time.Second))
+	defer engine.StopBackgroundWorkers()
+
+	assert.False(t, engine.IsTransactionSaveEnabled(), "Transaction saves should be disabled when background saves are enabled")
+}
+
+func TestStorageEngine_SaveCollectionAfterTransaction(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-transaction-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Create engine with transaction saves enabled
+	engine := NewStorageEngine(
+		WithDataDir(tempDir),
+		WithTransactionSave(true),
+	)
+	defer engine.StopBackgroundWorkers()
+
+	// Create collection and insert document
+	err = engine.CreateCollection("test")
+	require.NoError(t, err)
+
+	doc := domain.Document{"name": "Test", "value": 42}
+	err = engine.Insert("test", doc)
+	require.NoError(t, err)
+
+	// Collection should be dirty after insert
+	engine.mu.RLock()
+	collInfo := engine.collections["test"]
+	isDirty := collInfo.State == CollectionStateDirty
+	engine.mu.RUnlock()
+	assert.True(t, isDirty, "Collection should be dirty after insert")
+
+	// Trigger transaction save
+	err = engine.SaveCollectionAfterTransaction("test")
+	require.NoError(t, err)
+
+	// Check that file was created
+	fileName := filepath.Join(tempDir, "collections", "test.godb")
+	assert.FileExists(t, fileName)
+
+	// Collection should be clean after save
+	engine.mu.RLock()
+	collInfo = engine.collections["test"]
+	isClean := collInfo.State == CollectionStateLoaded
+	engine.mu.RUnlock()
+	assert.True(t, isClean, "Collection should be clean after save")
+}
+
+func TestStorageEngine_SaveCollectionAfterTransaction_Disabled(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-transaction-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Create engine with transaction saves disabled
+	engine := NewStorageEngine(
+		WithDataDir(tempDir),
+		WithTransactionSave(false),
+	)
+	defer engine.StopBackgroundWorkers()
+
+	// Create collection and insert document
+	err = engine.CreateCollection("test")
+	require.NoError(t, err)
+
+	doc := domain.Document{"name": "Test", "value": 42}
+	err = engine.Insert("test", doc)
+	require.NoError(t, err)
+
+	// Try to trigger transaction save - should do nothing
+	err = engine.SaveCollectionAfterTransaction("test")
+	require.NoError(t, err)
+
+	// Check that no file was created
+	fileName := filepath.Join(tempDir, "collections", "test.godb")
+	assert.NoFileExists(t, fileName)
+
+	// Collection should still be dirty
+	engine.mu.RLock()
+	collInfo := engine.collections["test"]
+	isDirty := collInfo.State == CollectionStateDirty
+	engine.mu.RUnlock()
+	assert.True(t, isDirty, "Collection should remain dirty when transaction saves are disabled")
+}
+
+func TestStorageEngine_SaveCollectionAfterTransaction_NonDirtyCollection(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-transaction-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	engine := NewStorageEngine(
+		WithDataDir(tempDir),
+		WithTransactionSave(true),
+	)
+	defer engine.StopBackgroundWorkers()
+
+	// Create collection but don't modify it
+	err = engine.CreateCollection("test")
+	require.NoError(t, err)
+
+	// Mark as loaded (not dirty)
+	engine.mu.Lock()
+	engine.collections["test"].State = CollectionStateLoaded
+	engine.mu.Unlock()
+
+	// Try to save - should do nothing since collection isn't dirty
+	err = engine.SaveCollectionAfterTransaction("test")
+	require.NoError(t, err)
+
+	// No file should be created
+	fileName := filepath.Join(tempDir, "collections", "test.godb")
+	assert.NoFileExists(t, fileName)
+}
+
+func TestStorageEngine_SaveCollectionAfterTransaction_NonExistentCollection(t *testing.T) {
+	engine := NewStorageEngine(WithTransactionSave(true))
+	defer engine.StopBackgroundWorkers()
+
+	// Try to save non-existent collection - should do nothing
+	err := engine.SaveCollectionAfterTransaction("nonexistent")
+	require.NoError(t, err) // Should not error, just do nothing
 }

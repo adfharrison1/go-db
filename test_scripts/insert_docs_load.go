@@ -56,7 +56,7 @@ func insertUser(baseURL string, user User) error {
 	return nil
 }
 
-func main() {
+func testInsertDocsLoad() {
 	// Check command line arguments
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: go run test_scripts/insert_docs_load_test.go <number_of_users> [server_url]")

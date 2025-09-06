@@ -16,6 +16,8 @@ type StorageEngine interface {
 	GetMemoryStats() map[string]interface{}
 	StartBackgroundWorkers()
 	StopBackgroundWorkers()
+	SaveCollectionAfterTransaction(collName string) error
+	IsTransactionSaveEnabled() bool
 }
 
 // DatabaseEngine combines StorageEngine and IndexEngine interfaces

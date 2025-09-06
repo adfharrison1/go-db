@@ -35,6 +35,12 @@ func (h *Handler) HandleInsert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Save collection to disk if transaction saves are enabled
+	if err := h.storage.SaveCollectionAfterTransaction(collName); err != nil {
+		log.Printf("WARN: Failed to save collection '%s' after insert: %v", collName, err)
+		// Don't fail the request if save fails, just log the warning
+	}
+
 	log.Printf("INFO: Insert successful for collection '%s'", collName)
 	w.WriteHeader(http.StatusCreated)
 }

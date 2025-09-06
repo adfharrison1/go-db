@@ -55,28 +55,46 @@ go run cmd/go-db.go -help
 
 ### Available Options
 
-| Flag               | Default           | Description                                  |
-| ------------------ | ----------------- | -------------------------------------------- |
-| `-port`            | `8080`            | Server port                                  |
-| `-data-file`       | `go-db_data.godb` | Data file path for persistence               |
-| `-data-dir`        | `.`               | Data directory for storage                   |
-| `-max-memory`      | `1024`            | Maximum memory usage in MB                   |
-| `-background-save` | `0` (disabled)    | Background save interval (e.g., `5m`, `30s`) |
-| `-help`            | `false`           | Show help message                            |
+| Flag                | Default           | Description                                  |
+| ------------------- | ----------------- | -------------------------------------------- |
+| `-port`             | `8080`            | Server port                                  |
+| `-data-file`        | `go-db_data.godb` | Data file path for persistence               |
+| `-data-dir`         | `.`               | Data directory for storage                   |
+| `-max-memory`       | `1024`            | Maximum memory usage in MB                   |
+| `-background-save`  | `0` (disabled)    | Background save interval (e.g., `5m`, `30s`) |
+| `-transaction-save` | `true`            | Save to disk after every write transaction   |
+| `-help`             | `false`           | Show help message                            |
 
 ### Data Safety
 
-**⚠️ Important:** By default, data is only saved when the server shuts down gracefully. For production use, enable background saves:
+**✅ Improved:** By default, data is automatically saved to disk after every write transaction (insert, update, delete), providing immediate persistence and data safety.
 
-```bash
-# Auto-save every 5 minutes
-go run cmd/go-db.go -background-save 5m
+#### Persistence Options
 
-# Auto-save every 30 seconds
-go run cmd/go-db.go -background-save 30s
-```
+1. **Transaction Saves (Default)**: Data saved after every write operation
 
-Without background saves, you risk data loss if the server crashes or is forcefully terminated.
+   ```bash
+   # Default behavior - transaction saves enabled
+   go run cmd/go-db.go
+
+   # Explicitly disable transaction saves
+   go run cmd/go-db.go -transaction-save=false
+   ```
+
+2. **Background Saves**: Data saved periodically on a timer
+
+   ```bash
+   # Auto-save every 5 minutes (disables transaction saves for performance)
+   go run cmd/go-db.go -background-save 5m
+
+   # Auto-save every 30 seconds
+   go run cmd/go-db.go -background-save 30s
+   ```
+
+**Note:** Background saves automatically disable transaction saves for better performance. Choose the option that best fits your use case:
+
+- **Transaction saves**: Best for data consistency and immediate persistence
+- **Background saves**: Best for high-throughput scenarios where some data loss is acceptable
 
 ## API Reference
 
