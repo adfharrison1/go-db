@@ -369,31 +369,26 @@ DELETE /collections/{collection}/documents/{id}
 #### Create Index
 
 ```http
-POST /collections/{collection}/indexes
-Content-Type: application/json
-
-{
-  "field": "email"
-}
+POST /collections/{collection}/indexes/{field}
 ```
 
 **Response**: `201 Created`
 
-#### Get Indexes
-
-```http
-GET /collections/{collection}/indexes
+```json
+{
+  "success": true,
+  "message": "Index created successfully",
+  "collection": "users",
+  "field": "email"
+}
 ```
 
-**Response**: `200 OK` with array of index field names
+**Note**: The `_id` field is automatically indexed and cannot be manually indexed.
 
-#### Drop Index
+**Error Responses**:
 
-```http
-DELETE /collections/{collection}/indexes/{field}
-```
-
-**Response**: `204 No Content`
+- `400 Bad Request`: Field name is required or trying to index `_id` field
+- `500 Internal Server Error`: Index creation failed
 
 ## Usage Examples
 
@@ -433,20 +428,12 @@ curl -X DELETE http://localhost:8080/collections/users/documents/1
 
 ```bash
 # Create index on email field
-curl -X POST http://localhost:8080/collections/users/indexes \
-  -H "Content-Type: application/json" \
-  -d '{"field": "email"}'
+curl -X POST http://localhost:8080/collections/users/indexes/email
 
 # Create index on age field
-curl -X POST http://localhost:8080/collections/users/indexes \
-  -H "Content-Type: application/json" \
-  -d '{"field": "age"}'
+curl -X POST http://localhost:8080/collections/users/indexes/age
 
-# List all indexes
-curl http://localhost:8080/collections/users/indexes
-
-# Drop index
-curl -X DELETE http://localhost:8080/collections/users/indexes/email
+# Note: _id field is automatically indexed and cannot be manually indexed
 ```
 
 ### Streaming Large Datasets
