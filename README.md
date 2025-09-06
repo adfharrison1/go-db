@@ -269,7 +269,17 @@ Content-Type: application/json
 }
 ```
 
-**Response**: `200 OK`
+**Response**: `200 OK` with the full updated document
+
+```json
+{
+  "_id": "1",
+  "name": "Alice",
+  "age": 31,
+  "city": "Boston",
+  "email": "alice@example.com"
+}
+```
 
 #### Batch Update Documents
 
@@ -316,7 +326,29 @@ Content-Type: application/json
   "message": "Batch update completed successfully",
   "updated_count": 3,
   "failed_count": 0,
-  "collection": "users"
+  "collection": "users",
+  "documents": [
+    {
+      "_id": "1",
+      "name": "Alice",
+      "age": 31,
+      "salary": 75000,
+      "department": "Senior Engineering"
+    },
+    {
+      "_id": "2",
+      "name": "Bob",
+      "age": 26,
+      "salary": 60000,
+      "position": "Sales Manager"
+    },
+    {
+      "_id": "3",
+      "name": "Charlie",
+      "active": false,
+      "end_date": "2024-12-31"
+    }
+  ]
 }
 ```
 
@@ -329,6 +361,22 @@ For partial failures:
   "updated_count": 2,
   "failed_count": 1,
   "collection": "users",
+  "documents": [
+    {
+      "_id": "1",
+      "name": "Alice",
+      "age": 31,
+      "salary": 75000,
+      "department": "Senior Engineering"
+    },
+    {
+      "_id": "2",
+      "name": "Bob",
+      "age": 26,
+      "salary": 60000,
+      "position": "Sales Manager"
+    }
+  ],
   "errors": ["operation 1: document with id 999 not found"]
 }
 ```

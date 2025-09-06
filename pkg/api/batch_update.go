@@ -22,12 +22,13 @@ type BatchUpdateOperation struct {
 
 // BatchUpdateResponse represents the response for batch update operations
 type BatchUpdateResponse struct {
-	Success      bool     `json:"success"`
-	Message      string   `json:"message"`
-	UpdatedCount int      `json:"updated_count"`
-	FailedCount  int      `json:"failed_count"`
-	Collection   string   `json:"collection"`
-	Errors       []string `json:"errors,omitempty"`
+	Success      bool              `json:"success"`
+	Message      string            `json:"message"`
+	UpdatedCount int               `json:"updated_count"`
+	FailedCount  int               `json:"failed_count"`
+	Collection   string            `json:"collection"`
+	Documents    []domain.Document `json:"documents"`
+	Errors       []string          `json:"errors,omitempty"`
 }
 
 // HandleBatchUpdate handles PATCH requests to update multiple documents in collections
@@ -71,7 +72,7 @@ func (h *Handler) HandleBatchUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Perform batch update
-	err := h.storage.BatchUpdate(collName, domainOps)
+	updatedDocs, err := h.storage.BatchUpdate(collName, domainOps)
 
 	// Parse results - determine success/failure counts
 	var response BatchUpdateResponse
@@ -101,8 +102,9 @@ func (h *Handler) HandleBatchUpdate(w http.ResponseWriter, r *http.Request) {
 		// Complete success
 		response.Success = true
 		response.Message = "Batch update completed successfully"
-		response.UpdatedCount = len(domainOps)
+		response.UpdatedCount = len(updatedDocs)
 		response.FailedCount = 0
+		response.Documents = updatedDocs
 	}
 
 	// Save collection to disk if transaction saves are enabled

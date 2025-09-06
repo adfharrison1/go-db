@@ -347,7 +347,7 @@ func TestStorageEngine_UpdateById(t *testing.T) {
 
 	// Test successful update
 	updates := domain.Document{"age": 26, "city": "Boston"}
-	err = engine.UpdateById("users", "1", updates)
+	_, err = engine.UpdateById("users", "1", updates)
 	require.NoError(t, err)
 
 	// Verify update
@@ -359,7 +359,7 @@ func TestStorageEngine_UpdateById(t *testing.T) {
 
 	// Test that _id cannot be updated
 	updates = domain.Document{"_id": "999"}
-	err = engine.UpdateById("users", "1", updates)
+	_, err = engine.UpdateById("users", "1", updates)
 	require.NoError(t, err) // Should not error, but should not update _id
 
 	retrieved, err = engine.GetById("users", "1")
@@ -367,12 +367,12 @@ func TestStorageEngine_UpdateById(t *testing.T) {
 	assert.Equal(t, "1", retrieved["_id"]) // _id should remain unchanged
 
 	// Test non-existent document
-	err = engine.UpdateById("users", "999", updates)
+	_, err = engine.UpdateById("users", "999", updates)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 
 	// Test non-existent collection
-	err = engine.UpdateById("nonexistent", "1", updates)
+	_, err = engine.UpdateById("nonexistent", "1", updates)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "does not exist")
 }
@@ -1109,11 +1109,11 @@ func TestStorageEngine_UpdateByIdEdgeCases(t *testing.T) {
 	docID := docs.Documents[0]["_id"].(string)
 
 	// Test updating with empty updates
-	err = engine.UpdateById("users", docID, domain.Document{})
+	_, err = engine.UpdateById("users", docID, domain.Document{})
 	assert.NoError(t, err)
 
 	// Test updating with nil updates
-	err = engine.UpdateById("users", docID, nil)
+	_, err = engine.UpdateById("users", docID, nil)
 	assert.NoError(t, err)
 
 	// Test updating with complex nested structure
@@ -1128,7 +1128,7 @@ func TestStorageEngine_UpdateByIdEdgeCases(t *testing.T) {
 		},
 	}
 
-	err = engine.UpdateById("users", docID, complexUpdates)
+	_, err = engine.UpdateById("users", docID, complexUpdates)
 	assert.NoError(t, err)
 
 	// Verify complex updates were applied
@@ -1384,7 +1384,7 @@ func TestStorageEngine_IndexConsistency(t *testing.T) {
 	assert.Len(t, foundDocs.Documents, 1)
 	docID := foundDocs.Documents[0]["_id"].(string)
 
-	err = engine.UpdateById("users", docID, map[string]interface{}{"age": 26})
+	_, err = engine.UpdateById("users", docID, map[string]interface{}{"age": 26})
 	require.NoError(t, err)
 
 	// Verify index is updated
@@ -1513,7 +1513,7 @@ func TestStorageEngine_ConcurrentDocumentOperations(t *testing.T) {
 		results, err := engine.FindAll("users", map[string]interface{}{"goroutine": i}, nil)
 		if err == nil && len(results.Documents) > 0 {
 			docID := results.Documents[0]["_id"].(string)
-			err = engine.UpdateById("users", docID, map[string]interface{}{"updated": true})
+			_, err = engine.UpdateById("users", docID, map[string]interface{}{"updated": true})
 			assert.NoError(t, err)
 		}
 	}
@@ -2237,7 +2237,7 @@ func TestStorageEngine_BatchUpdate(t *testing.T) {
 			{ID: "2", Updates: domain.Document{"age": 26, "salary": 60000}},
 		}
 
-		err := engine.BatchUpdate("employees", operations)
+		_, err := engine.BatchUpdate("employees", operations)
 		require.NoError(t, err)
 
 		// Verify updates
@@ -2258,7 +2258,7 @@ func TestStorageEngine_BatchUpdate(t *testing.T) {
 			{ID: "1", Updates: domain.Document{"_id": "999", "newfield": "test"}},
 		}
 
-		err := engine.BatchUpdate("employees", operations)
+		_, err := engine.BatchUpdate("employees", operations)
 		require.NoError(t, err)
 
 		// Verify _id wasn't changed but other field was updated
@@ -2281,7 +2281,7 @@ func TestStorageEngine_BatchUpdate(t *testing.T) {
 			{ID: "2", Updates: domain.Document{"status": "updated"}},  // Valid but not applied
 		}
 
-		err = engine.BatchUpdate("employees", operations)
+		_, err = engine.BatchUpdate("employees", operations)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "document with id 999 not found")
 
@@ -2296,7 +2296,7 @@ func TestStorageEngine_BatchUpdate(t *testing.T) {
 	})
 
 	t.Run("Batch Update Empty Operations", func(t *testing.T) {
-		err := engine.BatchUpdate("employees", []domain.BatchUpdateOperation{})
+		_, err := engine.BatchUpdate("employees", []domain.BatchUpdateOperation{})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no operations provided")
 	})
@@ -2310,7 +2310,7 @@ func TestStorageEngine_BatchUpdate(t *testing.T) {
 			}
 		}
 
-		err := engine.BatchUpdate("employees", operations)
+		_, err := engine.BatchUpdate("employees", operations)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "limited to 1000 operations")
 	})
@@ -2320,7 +2320,7 @@ func TestStorageEngine_BatchUpdate(t *testing.T) {
 			{ID: "1", Updates: domain.Document{"field": "value"}},
 		}
 
-		err := engine.BatchUpdate("nonexistent", operations)
+		_, err := engine.BatchUpdate("nonexistent", operations)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "does not exist")
 	})
@@ -2335,7 +2335,7 @@ func TestStorageEngine_BatchUpdate(t *testing.T) {
 			{ID: "1", Updates: domain.Document{"field": "value"}}, // Valid but not applied due to atomic failure
 		}
 
-		err = engine.BatchUpdate("employees", operations)
+		_, err = engine.BatchUpdate("employees", operations)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "document ID cannot be empty")
 
@@ -2384,7 +2384,7 @@ func TestStorageEngine_BatchOperations_WithIndexes(t *testing.T) {
 			{ID: "1", Updates: domain.Document{"age": 31}}, // Change Alice's age
 		}
 
-		err := engine.BatchUpdate("users", operations)
+		_, err := engine.BatchUpdate("users", operations)
 		require.NoError(t, err)
 
 		// Verify the update was applied (index update testing will be done when query API is available)
@@ -2445,7 +2445,7 @@ func TestStorageEngine_BatchOperations_WithTransactionSaves(t *testing.T) {
 			{ID: "1", Updates: domain.Document{"updated": true}},
 		}
 
-		err = engine.BatchUpdate("test_saves", operations)
+		_, err = engine.BatchUpdate("test_saves", operations)
 		require.NoError(t, err)
 
 		// Check collection is dirty again
@@ -2561,7 +2561,7 @@ func TestStorageEngine_BatchOperations_Concurrency(t *testing.T) {
 						{ID: "2", Updates: domain.Document{"updater": updaterID, "batch": j}},
 					}
 
-					err := engine.BatchUpdate("shared_coll", operations)
+					_, err := engine.BatchUpdate("shared_coll", operations)
 					if err != nil {
 						errors <- fmt.Errorf("updater %d: %v", updaterID, err)
 						return
@@ -2721,7 +2721,7 @@ func TestStorageEngine_BatchUpdate_Atomic(t *testing.T) {
 			{ID: "3", Updates: domain.Document{"department": "Product Marketing"}},
 		}
 
-		err := engine.BatchUpdate("employees", operations)
+		_, err := engine.BatchUpdate("employees", operations)
 		require.NoError(t, err)
 
 		// Verify all updates were applied
@@ -2756,7 +2756,7 @@ func TestStorageEngine_BatchUpdate_Atomic(t *testing.T) {
 			{ID: "2", Updates: domain.Document{"age": 99}},   // Valid but should not be applied
 		}
 
-		err = engine.BatchUpdate("employees", operations)
+		_, err = engine.BatchUpdate("employees", operations)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "document with id 999 not found")
 
@@ -2783,7 +2783,7 @@ func TestStorageEngine_BatchUpdate_Atomic(t *testing.T) {
 			{ID: "2", Updates: domain.Document{"age": 100}}, // Valid but should not be applied
 		}
 
-		err = engine.BatchUpdate("employees", operations)
+		_, err = engine.BatchUpdate("employees", operations)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "document ID cannot be empty")
 
@@ -2802,7 +2802,7 @@ func TestStorageEngine_BatchUpdate_Atomic(t *testing.T) {
 			{ID: "1", Updates: domain.Document{"field": "value"}},
 		}
 
-		err := engine.BatchUpdate("nonexistent", operations)
+		_, err := engine.BatchUpdate("nonexistent", operations)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "collection nonexistent does not exist")
 	})
@@ -2812,7 +2812,7 @@ func TestStorageEngine_BatchUpdate_Atomic(t *testing.T) {
 			{ID: "1", Updates: domain.Document{"_id": "999", "age": 32}}, // Try to change ID
 		}
 
-		err := engine.BatchUpdate("employees", operations)
+		_, err := engine.BatchUpdate("employees", operations)
 		require.NoError(t, err) // Should succeed but ignore _id change
 
 		// Verify _id was NOT changed but other fields were updated
@@ -2831,7 +2831,7 @@ func TestStorageEngine_BatchUpdate_Atomic(t *testing.T) {
 			{ID: "4", Updates: domain.Document{"status": "active", "department": "HR"}},
 		}
 
-		err := engine.BatchUpdate("employees", operations)
+		_, err := engine.BatchUpdate("employees", operations)
 		require.NoError(t, err)
 
 		// Verify all complex updates
@@ -2870,7 +2870,7 @@ func TestStorageEngine_BatchUpdate_Validation(t *testing.T) {
 	defer engine.StopBackgroundWorkers()
 
 	t.Run("Empty Operations List", func(t *testing.T) {
-		err := engine.BatchUpdate("test", []domain.BatchUpdateOperation{})
+		_, err := engine.BatchUpdate("test", []domain.BatchUpdateOperation{})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no operations provided")
 	})
@@ -2884,7 +2884,7 @@ func TestStorageEngine_BatchUpdate_Validation(t *testing.T) {
 			}
 		}
 
-		err := engine.BatchUpdate("test", tooManyOps)
+		_, err := engine.BatchUpdate("test", tooManyOps)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "limited to 1000 operations")
 	})

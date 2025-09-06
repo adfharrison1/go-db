@@ -29,7 +29,7 @@ resp, err := ts.POST("/collections/users", userDocument)
 
 - **Insert Document**: Tests document creation via POST
 - **Get Document by ID**: Tests document retrieval via GET
-- **Update Document**: Tests document modification via PATCH
+- **Update Document**: Tests document modification via PATCH and verifies the full updated document is returned
 - **Find All Documents**: Tests collection querying
 - **Delete Document**: Tests document removal via DELETE
 
@@ -64,7 +64,7 @@ resp, err := ts.POST("/collections/users", userDocument)
 #### Batch Operations (`TestAPI_Integration_BatchOperations`)
 
 - **Batch Insert**: Tests inserting multiple documents in a single request
-- **Batch Update**: Tests updating multiple documents by ID
+- **Batch Update**: Tests updating multiple documents by ID and verifies all updated documents are returned
 - **Large Batches**: Tests performance with 500+ documents
 - **Validation Errors**: Tests limits (1000 docs max) and empty requests
 - **Partial Failures**: Tests mixed success/failure scenarios
@@ -173,6 +173,14 @@ func TestAPI_BatchOperations(t *testing.T) {
     require.NoError(t, err)
     assert.Equal(t, 2, updateResp.UpdatedCount)
     assert.Equal(t, 0, updateResp.FailedCount)
+
+    // Verify returned documents contain the updates
+    assert.Len(t, updateResp.Documents, 2)
+    for _, doc := range updateResp.Documents {
+        assert.NotEmpty(t, doc["_id"])
+        assert.Contains(t, doc, "salary")
+        assert.Contains(t, doc, "level")
+    }
 }
 ```
 

@@ -112,6 +112,18 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 		assert.Equal(t, 0, response.FailedCount)
 		assert.Equal(t, "staff", response.Collection)
 
+		// Verify returned documents
+		assert.Len(t, response.Documents, 3)
+
+		// Check that all returned documents have the expected structure
+		for _, doc := range response.Documents {
+			assert.NotEmpty(t, doc["_id"])
+			assert.Contains(t, doc, "name")
+			assert.Contains(t, doc, "age")
+			assert.Contains(t, doc, "salary")
+			assert.Contains(t, doc, "bonus")
+		}
+
 		// Verify updates were applied
 		docResp, err := ts.GET("/collections/staff/documents/1")
 		require.NoError(t, err)

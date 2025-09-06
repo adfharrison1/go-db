@@ -199,20 +199,20 @@ func TestAPI_Integration_BasicCRUD(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		// Verify the update
-		resp, err = ts.GET("/collections/users/documents/1")
-		require.NoError(t, err)
-
+		// Verify the response contains the updated document
 		body, err := ReadResponseBody(resp)
 		require.NoError(t, err)
 
-		var result map[string]interface{}
-		err = json.Unmarshal([]byte(body), &result)
+		var updatedDoc map[string]interface{}
+		err = json.Unmarshal([]byte(body), &updatedDoc)
 		require.NoError(t, err)
 
-		assert.Equal(t, float64(31), result["age"])
-		assert.Equal(t, "New York", result["city"])
-		assert.Equal(t, "Alice", result["name"]) // Original fields preserved
+		// Verify the document has the updated fields
+		assert.Equal(t, "1", updatedDoc["_id"])
+		assert.Equal(t, "Alice", updatedDoc["name"])              // Original field preserved
+		assert.Equal(t, 31, int(updatedDoc["age"].(float64)))     // Updated field
+		assert.Equal(t, "New York", updatedDoc["city"])           // New field
+		assert.Equal(t, "alice@example.com", updatedDoc["email"]) // Original field preserved
 	})
 
 	t.Run("Find All Documents", func(t *testing.T) {

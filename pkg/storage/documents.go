@@ -75,19 +75,19 @@ func (se *StorageEngine) GetById(collName, docId string) (domain.Document, error
 	return doc, nil
 }
 
-// UpdateById updates a specific document by its ID
-func (se *StorageEngine) UpdateById(collName, docId string, updates domain.Document) error {
+// UpdateById updates a specific document by its ID and returns the updated document
+func (se *StorageEngine) UpdateById(collName, docId string, updates domain.Document) (domain.Document, error) {
 	se.mu.Lock()
 	defer se.mu.Unlock()
 
 	collection, err := se.getCollectionInternal(collName)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	doc, exists := collection.Documents[docId]
 	if !exists {
-		return fmt.Errorf("document with id %s not found in collection %s", docId, collName)
+		return nil, fmt.Errorf("document with id %s not found in collection %s", docId, collName)
 	}
 
 	// Create a copy of the old document for index updates
@@ -112,7 +112,7 @@ func (se *StorageEngine) UpdateById(collName, docId string, updates domain.Docum
 		collectionInfo.LastModified = time.Now()
 	}
 
-	return nil
+	return doc, nil
 }
 
 // DeleteById removes a specific document by its ID
@@ -548,13 +548,14 @@ func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) ([
 
 // BatchUpdate updates multiple documents in a collection atomically
 // All updates succeed or all fail with complete rollback (atomic operation)
-func (se *StorageEngine) BatchUpdate(collName string, operations []domain.BatchUpdateOperation) error {
+// Returns the updated documents
+func (se *StorageEngine) BatchUpdate(collName string, operations []domain.BatchUpdateOperation) ([]domain.Document, error) {
 	if len(operations) == 0 {
-		return fmt.Errorf("no operations provided for batch update")
+		return nil, fmt.Errorf("no operations provided for batch update")
 	}
 
 	if len(operations) > 1000 {
-		return fmt.Errorf("batch update limited to 1000 operations, got %d", len(operations))
+		return nil, fmt.Errorf("batch update limited to 1000 operations, got %d", len(operations))
 	}
 
 	se.mu.Lock()
@@ -563,7 +564,7 @@ func (se *StorageEngine) BatchUpdate(collName string, operations []domain.BatchU
 	// Get collection
 	collection, err := se.getCollectionInternal(collName)
 	if err != nil {
-		return fmt.Errorf("collection %s does not exist", collName)
+		return nil, fmt.Errorf("collection %s does not exist", collName)
 	}
 
 	// Phase 1: Validation and preparation (no mutations yet)
@@ -579,13 +580,13 @@ func (se *StorageEngine) BatchUpdate(collName string, operations []domain.BatchU
 	// Validate all operations first - no mutations during this phase
 	for i, op := range operations {
 		if op.ID == "" {
-			return fmt.Errorf("operation %d: document ID cannot be empty", i)
+			return nil, fmt.Errorf("operation %d: document ID cannot be empty", i)
 		}
 
 		// Check if document exists
 		existingDoc, exists := collection.Documents[op.ID]
 		if !exists {
-			return fmt.Errorf("operation %d: document with id %s not found", i, op.ID)
+			return nil, fmt.Errorf("operation %d: document with id %s not found", i, op.ID)
 		}
 
 		// Create full copy of the original document for rollback
@@ -640,5 +641,11 @@ func (se *StorageEngine) BatchUpdate(collName string, operations []domain.BatchU
 		collectionInfo.LastModified = time.Now()
 	}
 
-	return nil
+	// Return the updated documents
+	updatedDocs := make([]domain.Document, len(validatedOps))
+	for i, validOp := range validatedOps {
+		updatedDocs[i] = validOp.updatedDoc
+	}
+
+	return updatedDocs, nil
 }

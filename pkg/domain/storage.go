@@ -14,8 +14,8 @@ type StorageEngine interface {
 	FindAll(collName string, filter map[string]interface{}, options *PaginationOptions) (*PaginationResult, error)
 	FindAllStream(collName string, filter map[string]interface{}) (<-chan Document, error)
 	GetById(collName, docId string) (Document, error)
-	UpdateById(collName, docId string, updates Document) error
-	BatchUpdate(collName string, updates []BatchUpdateOperation) error
+	UpdateById(collName, docId string, updates Document) (Document, error)
+	BatchUpdate(collName string, updates []BatchUpdateOperation) ([]Document, error)
 	DeleteById(collName, docId string) error
 	CreateCollection(collName string) error
 	GetCollection(collName string) (*Collection, error)

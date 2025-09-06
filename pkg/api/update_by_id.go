@@ -30,7 +30,8 @@ func (h *Handler) HandleUpdateById(w http.ResponseWriter, r *http.Request) {
 		updateDoc[k] = v
 	}
 
-	if err := h.storage.UpdateById(collName, docId, updateDoc); err != nil {
+	updatedDoc, err := h.storage.UpdateById(collName, docId, updateDoc)
+	if err != nil {
 		log.Printf("ERROR: Update failed for document '%s' in collection '%s': %v", docId, collName, err)
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -43,5 +44,9 @@ func (h *Handler) HandleUpdateById(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("INFO: Updated document '%s' in collection '%s'", docId, collName)
+
+	// Return the updated document
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(updatedDoc)
 }

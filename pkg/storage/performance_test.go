@@ -535,7 +535,7 @@ func TestBatchUpdatePerformance(t *testing.T) {
 		}
 
 		start := time.Now()
-		err := engine.BatchUpdate("update_performance", operations)
+		_, err := engine.BatchUpdate("update_performance", operations)
 		duration := time.Since(start)
 
 		require.NoError(t, err)
@@ -565,7 +565,7 @@ func TestBatchUpdatePerformance(t *testing.T) {
 				"individual_update": true,
 				"timestamp":         time.Now().Unix(),
 			}
-			err := engine.UpdateById("update_performance", fmt.Sprintf("%d", i+1), updates)
+			_, err := engine.UpdateById("update_performance", fmt.Sprintf("%d", i+1), updates)
 			require.NoError(t, err)
 		}
 		individualDuration := time.Since(start)
@@ -583,7 +583,7 @@ func TestBatchUpdatePerformance(t *testing.T) {
 		}
 
 		start = time.Now()
-		err := engine.BatchUpdate("update_performance", operations)
+		_, err := engine.BatchUpdate("update_performance", operations)
 		batchDuration := time.Since(start)
 
 		require.NoError(t, err)
