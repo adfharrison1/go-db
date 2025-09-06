@@ -115,6 +115,45 @@ func (se *StorageEngine) UpdateById(collName, docId string, updates domain.Docum
 	return doc, nil
 }
 
+// ReplaceById completely replaces a document with new content (PUT operation)
+func (se *StorageEngine) ReplaceById(collName, docId string, newDoc domain.Document) (domain.Document, error) {
+	se.mu.Lock()
+	defer se.mu.Unlock()
+
+	collection, err := se.getCollectionInternal(collName)
+	if err != nil {
+		return nil, err
+	}
+
+	oldDoc, exists := collection.Documents[docId]
+	if !exists {
+		return nil, fmt.Errorf("document with id %s not found in collection %s", docId, collName)
+	}
+
+	// Create a copy of the old document for index updates
+	oldDocCopy := make(domain.Document)
+	for k, v := range oldDoc {
+		oldDocCopy[k] = v
+	}
+
+	// Ensure the new document has the same _id
+	newDoc["_id"] = docId
+
+	// Replace the entire document
+	collection.Documents[docId] = newDoc
+
+	// Update indexes with the change (remove old, add new)
+	se.updateIndexes(collName, docId, oldDocCopy, newDoc)
+
+	// Mark collection as dirty for persistence
+	if _, collectionInfo, found := se.cache.Get(collName); found {
+		collectionInfo.State = CollectionStateDirty
+		collectionInfo.LastModified = time.Now()
+	}
+
+	return newDoc, nil
+}
+
 // DeleteById removes a specific document by its ID
 func (se *StorageEngine) DeleteById(collName, docId string) error {
 	se.mu.Lock()

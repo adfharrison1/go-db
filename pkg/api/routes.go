@@ -15,7 +15,8 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 
 	// Document operations (by ID)
 	router.HandleFunc("/collections/{coll}/documents/{id}", h.HandleGetById).Methods("GET")
-	router.HandleFunc("/collections/{coll}/documents/{id}", h.HandleUpdateById).Methods("PATCH")
+	router.HandleFunc("/collections/{coll}/documents/{id}", h.HandleUpdateById).Methods("PATCH") // Partial update
+	router.HandleFunc("/collections/{coll}/documents/{id}", h.HandleReplaceById).Methods("PUT")  // Complete replacement
 	router.HandleFunc("/collections/{coll}/documents/{id}", h.HandleDeleteById).Methods("DELETE")
 
 	// Find with optional filtering (query parameters)

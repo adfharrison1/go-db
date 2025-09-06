@@ -215,6 +215,44 @@ func TestAPI_Integration_BasicCRUD(t *testing.T) {
 		assert.Equal(t, "alice@example.com", updatedDoc["email"]) // Original field preserved
 	})
 
+	t.Run("Replace Document", func(t *testing.T) {
+		// First, let's get the current document to see what we're replacing
+		resp, err := ts.GET("/collections/users/documents/1")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Now replace the entire document with new content
+		newDoc := map[string]interface{}{
+			"name":     "Alice Smith",
+			"age":      32,
+			"position": "Senior Developer",
+			"salary":   95000,
+		}
+
+		resp, err = ts.PUT("/collections/users/documents/1", newDoc)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Verify the response contains the replaced document
+		body, err := ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		var replacedDoc map[string]interface{}
+		err = json.Unmarshal([]byte(body), &replacedDoc)
+		require.NoError(t, err)
+
+		// Verify the document was completely replaced
+		assert.Equal(t, "1", replacedDoc["_id"])                     // ID preserved
+		assert.Equal(t, "Alice Smith", replacedDoc["name"])          // New field
+		assert.Equal(t, 32, int(replacedDoc["age"].(float64)))       // New field
+		assert.Equal(t, "Senior Developer", replacedDoc["position"]) // New field
+		assert.Equal(t, 95000, int(replacedDoc["salary"].(float64))) // New field
+
+		// Verify old fields are gone
+		assert.Nil(t, replacedDoc["email"]) // Original field removed
+		assert.Nil(t, replacedDoc["city"])  // Original field removed
+	})
+
 	t.Run("Find All Documents", func(t *testing.T) {
 		// Insert another document first
 		user2 := map[string]interface{}{
@@ -334,6 +372,12 @@ func TestAPI_Integration_ErrorHandling(t *testing.T) {
 
 	t.Run("Update Non-Existent Document", func(t *testing.T) {
 		resp, err := ts.PATCH("/collections/users/documents/999", map[string]interface{}{"value": 42})
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	})
+
+	t.Run("Replace Non-Existent Document", func(t *testing.T) {
+		resp, err := ts.PUT("/collections/users/documents/999", map[string]interface{}{"value": 42})
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})

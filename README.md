@@ -257,7 +257,7 @@ GET /collections/{collection}/documents/{id}
 
 **Response**: `200 OK` with document JSON
 
-#### Update Document
+#### Update Document (Partial)
 
 ```http
 PATCH /collections/{collection}/documents/{id}
@@ -280,6 +280,34 @@ Content-Type: application/json
   "email": "alice@example.com"
 }
 ```
+
+#### Replace Document
+
+```http
+PUT /collections/{collection}/documents/{id}
+Content-Type: application/json
+
+{
+  "name": "Alice Smith",
+  "age": 32,
+  "position": "Senior Developer",
+  "salary": 95000
+}
+```
+
+**Response**: `200 OK` with the completely replaced document
+
+```json
+{
+  "_id": "1",
+  "name": "Alice Smith",
+  "age": 32,
+  "position": "Senior Developer",
+  "salary": 95000
+}
+```
+
+**Note**: PUT completely replaces the document content, while PATCH performs partial updates. All existing fields not included in the PUT request will be removed.
 
 #### Batch Update Documents
 
@@ -415,10 +443,15 @@ curl "http://localhost:8080/collections/users/find?limit=10&after=eyJpZCI6IjEwIi
 # Get document by ID
 curl http://localhost:8080/collections/users/documents/1
 
-# Update document
+# Update document (partial)
 curl -X PATCH http://localhost:8080/collections/users/documents/1 \
   -H "Content-Type: application/json" \
   -d '{"age": 31}'
+
+# Replace document
+curl -X PUT http://localhost:8080/collections/users/documents/1 \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Alice Smith", "age": 32, "position": "Senior Developer"}'
 
 # Delete document
 curl -X DELETE http://localhost:8080/collections/users/documents/1
