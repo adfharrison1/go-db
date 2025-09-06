@@ -634,3 +634,323 @@ func TestStorageEngine_LoadCollectionFromDisk_Integration(t *testing.T) {
 	assert.True(t, foundNames["Bob"])
 	assert.True(t, foundNames["Charlie"])
 }
+
+// Test ID counter restoration when loading collections from disk
+func TestStorageEngine_IDCounterRestoration(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-test-id-restoration-")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Phase 1: Create collection with documents and save to disk
+	engine1 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	defer engine1.StopBackgroundWorkers()
+
+	// Insert documents with sequential IDs
+	for i := 1; i <= 5; i++ {
+		doc := domain.Document{"name": fmt.Sprintf("User %d", i), "value": i * 10}
+		err := engine1.Insert("users", doc)
+		require.NoError(t, err)
+	}
+
+	// Verify IDs are sequential: "1", "2", "3", "4", "5"
+	for i := 1; i <= 5; i++ {
+		doc, err := engine1.GetById("users", fmt.Sprintf("%d", i))
+		require.NoError(t, err)
+		assert.Equal(t, fmt.Sprintf("User %d", i), doc["name"])
+	}
+
+	// Save to disk
+	engine1.saveDirtyCollections()
+
+	// Phase 2: Create new engine instance and load collection from disk
+	engine2 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	defer engine2.StopBackgroundWorkers()
+
+	// Since we're using per-collection saves, manually add collection info
+	// to simulate how the engine would know about collections in a real scenario
+	engine2.mu.Lock()
+	engine2.collections["users"] = &CollectionInfo{
+		Name:          "users",
+		DocumentCount: 5,
+		State:         CollectionStateUnloaded,
+		LastModified:  time.Now(),
+	}
+	engine2.mu.Unlock()
+
+	// Access the collection to trigger loading from disk
+	collection, err := engine2.GetCollection("users")
+	require.NoError(t, err)
+	assert.Len(t, collection.Documents, 5)
+
+	// Phase 3: Insert new document - should get ID "6", not "1"
+	newDoc := domain.Document{"name": "User 6", "value": 60}
+	err = engine2.Insert("users", newDoc)
+	require.NoError(t, err)
+
+	// Verify the new document got ID "6"
+	doc6, err := engine2.GetById("users", "6")
+	require.NoError(t, err)
+	assert.Equal(t, "User 6", doc6["name"])
+	assert.Equal(t, 60, doc6["value"])
+
+	// Verify original documents are still intact
+	for i := 1; i <= 5; i++ {
+		doc, err := engine2.GetById("users", fmt.Sprintf("%d", i))
+		require.NoError(t, err)
+		assert.Equal(t, fmt.Sprintf("User %d", i), doc["name"])
+	}
+
+	// Insert another document - should get ID "7"
+	anotherDoc := domain.Document{"name": "User 7", "value": 70}
+	err = engine2.Insert("users", anotherDoc)
+	require.NoError(t, err)
+
+	doc7, err := engine2.GetById("users", "7")
+	require.NoError(t, err)
+	assert.Equal(t, "User 7", doc7["name"])
+}
+
+// Test ID counter restoration with non-sequential IDs
+func TestStorageEngine_IDCounterRestoration_NonSequential(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-test-id-nonseq-")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Phase 1: Simulate a collection that had some documents deleted
+	engine1 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	defer engine1.StopBackgroundWorkers()
+
+	// Create collection manually and add documents with gaps
+	err = engine1.CreateCollection("products")
+	require.NoError(t, err)
+
+	collection, err := engine1.GetCollection("products")
+	require.NoError(t, err)
+
+	// Manually add documents with non-sequential IDs (simulating deleted documents)
+	collection.Documents["1"] = domain.Document{"name": "Product 1", "_id": "1"}
+	collection.Documents["3"] = domain.Document{"name": "Product 3", "_id": "3"}
+	collection.Documents["7"] = domain.Document{"name": "Product 7", "_id": "7"}
+	collection.Documents["15"] = domain.Document{"name": "Product 15", "_id": "15"}
+
+	// Mark collection as dirty and save
+	if _, collectionInfo, found := engine1.cache.Get("products"); found {
+		collectionInfo.State = CollectionStateDirty
+		collectionInfo.DocumentCount = 4
+	}
+
+	engine1.saveDirtyCollections()
+
+	// Phase 2: Load in new engine - should restore counter to highest ID (15)
+	engine2 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	defer engine2.StopBackgroundWorkers()
+
+	// Manually add collection info for per-collection loading
+	engine2.mu.Lock()
+	engine2.collections["products"] = &CollectionInfo{
+		Name:          "products",
+		DocumentCount: 4,
+		State:         CollectionStateUnloaded,
+		LastModified:  time.Now(),
+	}
+	engine2.mu.Unlock()
+
+	// Trigger loading from disk
+	_, err = engine2.GetCollection("products")
+	require.NoError(t, err)
+
+	// Insert new document - should get ID "16", not "1"
+	newDoc := domain.Document{"name": "Product 16"}
+	err = engine2.Insert("products", newDoc)
+	require.NoError(t, err)
+
+	doc16, err := engine2.GetById("products", "16")
+	require.NoError(t, err)
+	assert.Equal(t, "Product 16", doc16["name"])
+	assert.Equal(t, "16", doc16["_id"])
+}
+
+// Test ID counter restoration with empty collection
+func TestStorageEngine_IDCounterRestoration_EmptyCollection(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-test-id-empty-")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Phase 1: Create empty collection and save
+	engine1 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	defer engine1.StopBackgroundWorkers()
+
+	err = engine1.CreateCollection("empty")
+	require.NoError(t, err)
+
+	// Add a document, then delete it to create an empty collection that gets saved
+	doc := domain.Document{"temp": "temp"}
+	err = engine1.Insert("empty", doc)
+	require.NoError(t, err)
+	err = engine1.DeleteById("empty", "1")
+	require.NoError(t, err)
+
+	engine1.saveDirtyCollections()
+
+	// Phase 2: Load in new engine
+	engine2 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	defer engine2.StopBackgroundWorkers()
+
+	// Manually add collection info for per-collection loading
+	engine2.mu.Lock()
+	engine2.collections["empty"] = &CollectionInfo{
+		Name:          "empty",
+		DocumentCount: 0,
+		State:         CollectionStateUnloaded,
+		LastModified:  time.Now(),
+	}
+	engine2.mu.Unlock()
+
+	// Trigger loading from disk
+	collection, err := engine2.GetCollection("empty")
+	require.NoError(t, err)
+	assert.Empty(t, collection.Documents)
+
+	// Insert first document - should get ID "1" since collection is truly empty
+	firstDoc := domain.Document{"name": "First Document"}
+	err = engine2.Insert("empty", firstDoc)
+	require.NoError(t, err)
+
+	doc1, err := engine2.GetById("empty", "1")
+	require.NoError(t, err)
+	assert.Equal(t, "First Document", doc1["name"])
+	assert.Equal(t, "1", doc1["_id"])
+}
+
+// Test ID counter restoration with non-numeric IDs (edge case)
+func TestStorageEngine_IDCounterRestoration_NonNumericIDs(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-test-id-nonnumeric-")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Phase 1: Create collection with mixed numeric and non-numeric IDs
+	engine1 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	defer engine1.StopBackgroundWorkers()
+
+	err = engine1.CreateCollection("mixed")
+	require.NoError(t, err)
+
+	collection, err := engine1.GetCollection("mixed")
+	require.NoError(t, err)
+
+	// Add documents with mixed ID types
+	collection.Documents["5"] = domain.Document{"name": "Numeric 5", "_id": "5"}
+	collection.Documents["abc"] = domain.Document{"name": "String abc", "_id": "abc"}
+	collection.Documents["10"] = domain.Document{"name": "Numeric 10", "_id": "10"}
+	collection.Documents["xyz"] = domain.Document{"name": "String xyz", "_id": "xyz"}
+
+	// Mark as dirty and save
+	if _, collectionInfo, found := engine1.cache.Get("mixed"); found {
+		collectionInfo.State = CollectionStateDirty
+		collectionInfo.DocumentCount = 4
+	}
+
+	engine1.saveDirtyCollections()
+
+	// Phase 2: Load in new engine - should restore counter to highest numeric ID (10)
+	engine2 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	defer engine2.StopBackgroundWorkers()
+
+	// Manually add collection info for per-collection loading
+	engine2.mu.Lock()
+	engine2.collections["mixed"] = &CollectionInfo{
+		Name:          "mixed",
+		DocumentCount: 4,
+		State:         CollectionStateUnloaded,
+		LastModified:  time.Now(),
+	}
+	engine2.mu.Unlock()
+
+	// Trigger loading from disk
+	_, err = engine2.GetCollection("mixed")
+	require.NoError(t, err)
+
+	// Insert new document - should get ID "11" (ignoring non-numeric IDs)
+	newDoc := domain.Document{"name": "Numeric 11"}
+	err = engine2.Insert("mixed", newDoc)
+	require.NoError(t, err)
+
+	doc11, err := engine2.GetById("mixed", "11")
+	require.NoError(t, err)
+	assert.Equal(t, "Numeric 11", doc11["name"])
+	assert.Equal(t, "11", doc11["_id"])
+
+	// Verify all original documents are still there
+	doc5, err := engine2.GetById("mixed", "5")
+	require.NoError(t, err)
+	assert.Equal(t, "Numeric 5", doc5["name"])
+
+	docAbc, err := engine2.GetById("mixed", "abc")
+	require.NoError(t, err)
+	assert.Equal(t, "String abc", docAbc["name"])
+}
+
+// Test ID counter restoration with batch operations
+func TestStorageEngine_IDCounterRestoration_BatchOperations(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-test-id-batch-")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Phase 1: Create collection with batch insert and save
+	engine1 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	defer engine1.StopBackgroundWorkers()
+
+	docs := make([]domain.Document, 10)
+	for i := 0; i < 10; i++ {
+		docs[i] = domain.Document{"name": fmt.Sprintf("Batch Doc %d", i+1), "value": (i + 1) * 5}
+	}
+
+	err = engine1.BatchInsert("batch_test", docs)
+	require.NoError(t, err)
+
+	// Save to disk
+	engine1.saveDirtyCollections()
+
+	// Phase 2: Load in new engine and continue with batch operations
+	engine2 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	defer engine2.StopBackgroundWorkers()
+
+	// Manually add collection info for per-collection loading
+	engine2.mu.Lock()
+	engine2.collections["batch_test"] = &CollectionInfo{
+		Name:          "batch_test",
+		DocumentCount: 10,
+		State:         CollectionStateUnloaded,
+		LastModified:  time.Now(),
+	}
+	engine2.mu.Unlock()
+
+	// Trigger loading from disk
+	collection, err := engine2.GetCollection("batch_test")
+	require.NoError(t, err)
+	assert.Len(t, collection.Documents, 10)
+
+	// Batch insert more documents - should continue from ID "11"
+	moreDocs := make([]domain.Document, 5)
+	for i := 0; i < 5; i++ {
+		moreDocs[i] = domain.Document{"name": fmt.Sprintf("Second Batch Doc %d", i+1), "value": (i + 11) * 5}
+	}
+
+	err = engine2.BatchInsert("batch_test", moreDocs)
+	require.NoError(t, err)
+
+	// Verify new documents got IDs "11" through "15"
+	for i := 11; i <= 15; i++ {
+		doc, err := engine2.GetById("batch_test", fmt.Sprintf("%d", i))
+		require.NoError(t, err)
+		assert.Equal(t, fmt.Sprintf("Second Batch Doc %d", i-10), doc["name"])
+		assert.Equal(t, fmt.Sprintf("%d", i), doc["_id"])
+	}
+
+	// Verify original documents are still intact
+	for i := 1; i <= 10; i++ {
+		doc, err := engine2.GetById("batch_test", fmt.Sprintf("%d", i))
+		require.NoError(t, err)
+		assert.Equal(t, fmt.Sprintf("Batch Doc %d", i), doc["name"])
+	}
+}

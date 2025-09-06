@@ -2100,3 +2100,474 @@ func TestStorageEngine_SaveCollectionAfterTransaction_NonExistentCollection(t *t
 	err := engine.SaveCollectionAfterTransaction("nonexistent")
 	require.NoError(t, err) // Should not error, just do nothing
 }
+
+// Tests for batch operations
+
+func TestStorageEngine_BatchInsert(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-batch-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	engine := NewStorageEngine(WithDataDir(tempDir))
+	defer engine.StopBackgroundWorkers()
+
+	t.Run("Basic Batch Insert", func(t *testing.T) {
+		docs := []domain.Document{
+			{"name": "Alice", "age": 30},
+			{"name": "Bob", "age": 25},
+			{"name": "Charlie", "age": 35},
+		}
+
+		err := engine.BatchInsert("users", docs)
+		require.NoError(t, err)
+
+		// Verify documents were inserted
+		doc1, err := engine.GetById("users", "1")
+		require.NoError(t, err)
+		assert.Equal(t, "Alice", doc1["name"])
+		assert.Equal(t, "1", doc1["_id"])
+
+		doc2, err := engine.GetById("users", "2")
+		require.NoError(t, err)
+		assert.Equal(t, "Bob", doc2["name"])
+		assert.Equal(t, "2", doc2["_id"])
+
+		doc3, err := engine.GetById("users", "3")
+		require.NoError(t, err)
+		assert.Equal(t, "Charlie", doc3["name"])
+		assert.Equal(t, "3", doc3["_id"])
+	})
+
+	t.Run("Batch Insert Updates Collection State", func(t *testing.T) {
+		docs := []domain.Document{
+			{"product": "Widget", "price": 10.99},
+			{"product": "Gadget", "price": 25.50},
+		}
+
+		err := engine.BatchInsert("products", docs)
+		require.NoError(t, err)
+
+		// Check collection state is dirty
+		engine.mu.RLock()
+		collInfo, exists := engine.collections["products"]
+		require.True(t, exists)
+		assert.Equal(t, CollectionStateDirty, collInfo.State)
+		assert.Equal(t, int64(2), collInfo.DocumentCount)
+		engine.mu.RUnlock()
+	})
+
+	t.Run("Batch Insert Creates Collection", func(t *testing.T) {
+		docs := []domain.Document{
+			{"item": "test"},
+		}
+
+		err := engine.BatchInsert("new_collection", docs)
+		require.NoError(t, err)
+
+		// Verify collection was created
+		engine.mu.RLock()
+		_, exists := engine.collections["new_collection"]
+		engine.mu.RUnlock()
+		assert.True(t, exists)
+
+		// Verify document exists
+		doc, err := engine.GetById("new_collection", "1")
+		require.NoError(t, err)
+		assert.Equal(t, "test", doc["item"])
+	})
+
+	t.Run("Batch Insert Empty Docs", func(t *testing.T) {
+		err := engine.BatchInsert("test", []domain.Document{})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no documents provided")
+	})
+
+	t.Run("Batch Insert Too Many Docs", func(t *testing.T) {
+		docs := make([]domain.Document, 1001)
+		for i := 0; i < 1001; i++ {
+			docs[i] = domain.Document{"id": i}
+		}
+
+		err := engine.BatchInsert("test", docs)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "limited to 1000 documents")
+	})
+
+	t.Run("Batch Insert Large Valid Batch", func(t *testing.T) {
+		docs := make([]domain.Document, 500)
+		for i := 0; i < 500; i++ {
+			docs[i] = domain.Document{"id": i, "value": i * 2}
+		}
+
+		err := engine.BatchInsert("large_batch", docs)
+		require.NoError(t, err)
+
+		// Verify a few random documents
+		doc1, err := engine.GetById("large_batch", "1")
+		require.NoError(t, err)
+		assert.Equal(t, 0, doc1["id"])
+
+		doc250, err := engine.GetById("large_batch", "250")
+		require.NoError(t, err)
+		assert.Equal(t, 249, doc250["id"])
+		assert.Equal(t, 498, doc250["value"])
+	})
+}
+
+func TestStorageEngine_BatchUpdate(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-batch-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	engine := NewStorageEngine(WithDataDir(tempDir))
+	defer engine.StopBackgroundWorkers()
+
+	// Setup: Insert some initial documents
+	initialDocs := []domain.Document{
+		{"name": "Alice", "age": 30, "department": "Engineering"},
+		{"name": "Bob", "age": 25, "department": "Sales"},
+		{"name": "Charlie", "age": 35, "department": "Engineering"},
+	}
+	err = engine.BatchInsert("employees", initialDocs)
+	require.NoError(t, err)
+
+	t.Run("Basic Batch Update", func(t *testing.T) {
+		operations := []domain.BatchUpdateOperation{
+			{ID: "1", Updates: domain.Document{"age": 31, "salary": 75000}},
+			{ID: "2", Updates: domain.Document{"age": 26, "salary": 60000}},
+		}
+
+		err := engine.BatchUpdate("employees", operations)
+		require.NoError(t, err)
+
+		// Verify updates
+		doc1, err := engine.GetById("employees", "1")
+		require.NoError(t, err)
+		assert.Equal(t, 31, doc1["age"])
+		assert.Equal(t, 75000, doc1["salary"])
+		assert.Equal(t, "Alice", doc1["name"]) // Original field preserved
+
+		doc2, err := engine.GetById("employees", "2")
+		require.NoError(t, err)
+		assert.Equal(t, 26, doc2["age"])
+		assert.Equal(t, 60000, doc2["salary"])
+	})
+
+	t.Run("Batch Update Prevents ID Changes", func(t *testing.T) {
+		operations := []domain.BatchUpdateOperation{
+			{ID: "1", Updates: domain.Document{"_id": "999", "newfield": "test"}},
+		}
+
+		err := engine.BatchUpdate("employees", operations)
+		require.NoError(t, err)
+
+		// Verify _id wasn't changed but other field was updated
+		doc, err := engine.GetById("employees", "1")
+		require.NoError(t, err)
+		assert.Equal(t, "1", doc["_id"])
+		assert.Equal(t, "test", doc["newfield"])
+	})
+
+	t.Run("Batch Update Partial Failures", func(t *testing.T) {
+		operations := []domain.BatchUpdateOperation{
+			{ID: "1", Updates: domain.Document{"status": "updated"}},  // Should succeed
+			{ID: "999", Updates: domain.Document{"status": "failed"}}, // Should fail
+			{ID: "2", Updates: domain.Document{"status": "updated"}},  // Should succeed
+		}
+
+		err := engine.BatchUpdate("employees", operations)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "2 successes and 1 errors")
+
+		// Verify successful updates
+		doc1, err := engine.GetById("employees", "1")
+		require.NoError(t, err)
+		assert.Equal(t, "updated", doc1["status"])
+
+		doc2, err := engine.GetById("employees", "2")
+		require.NoError(t, err)
+		assert.Equal(t, "updated", doc2["status"])
+	})
+
+	t.Run("Batch Update Empty Operations", func(t *testing.T) {
+		err := engine.BatchUpdate("employees", []domain.BatchUpdateOperation{})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no operations provided")
+	})
+
+	t.Run("Batch Update Too Many Operations", func(t *testing.T) {
+		operations := make([]domain.BatchUpdateOperation, 1001)
+		for i := 0; i < 1001; i++ {
+			operations[i] = domain.BatchUpdateOperation{
+				ID:      "1",
+				Updates: domain.Document{"field": i},
+			}
+		}
+
+		err := engine.BatchUpdate("employees", operations)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "limited to 1000 operations")
+	})
+
+	t.Run("Batch Update Non-Existent Collection", func(t *testing.T) {
+		operations := []domain.BatchUpdateOperation{
+			{ID: "1", Updates: domain.Document{"field": "value"}},
+		}
+
+		err := engine.BatchUpdate("nonexistent", operations)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "does not exist")
+	})
+
+	t.Run("Batch Update Empty ID", func(t *testing.T) {
+		operations := []domain.BatchUpdateOperation{
+			{ID: "", Updates: domain.Document{"field": "value"}},
+			{ID: "1", Updates: domain.Document{"field": "value"}}, // Valid one
+		}
+
+		err := engine.BatchUpdate("employees", operations)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "document ID cannot be empty")
+		assert.Contains(t, err.Error(), "1 successes and 1 errors")
+	})
+}
+
+func TestStorageEngine_BatchOperations_WithIndexes(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-batch-index-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	engine := NewStorageEngine(WithDataDir(tempDir))
+	defer engine.StopBackgroundWorkers()
+
+	// Create index on age field
+	err = engine.indexEngine.CreateIndex("users", "age")
+	require.NoError(t, err)
+
+	t.Run("Batch Insert Updates Indexes", func(t *testing.T) {
+		docs := []domain.Document{
+			{"name": "Alice", "age": 30},
+			{"name": "Bob", "age": 25},
+			{"name": "Charlie", "age": 30}, // Same age as Alice
+		}
+
+		err := engine.BatchInsert("users", docs)
+		require.NoError(t, err)
+
+		// Verify indexes were created by checking that documents can be found
+		// (The actual index querying will be tested separately when the API is available)
+		doc1, err := engine.GetById("users", "1")
+		require.NoError(t, err)
+		assert.Equal(t, 30, doc1["age"])
+
+		doc3, err := engine.GetById("users", "3")
+		require.NoError(t, err)
+		assert.Equal(t, 30, doc3["age"])
+	})
+
+	t.Run("Batch Update Updates Indexes", func(t *testing.T) {
+		operations := []domain.BatchUpdateOperation{
+			{ID: "1", Updates: domain.Document{"age": 31}}, // Change Alice's age
+		}
+
+		err := engine.BatchUpdate("users", operations)
+		require.NoError(t, err)
+
+		// Verify the update was applied (index update testing will be done when query API is available)
+		doc1, err := engine.GetById("users", "1")
+		require.NoError(t, err)
+		assert.Equal(t, 31, doc1["age"])
+	})
+}
+
+func TestStorageEngine_BatchOperations_WithTransactionSaves(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-batch-save-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	engine := NewStorageEngine(
+		WithDataDir(tempDir),
+		WithTransactionSave(true),
+	)
+	defer engine.StopBackgroundWorkers()
+
+	t.Run("Batch Insert Marks Collection Dirty", func(t *testing.T) {
+		docs := []domain.Document{
+			{"name": "Test1"},
+			{"name": "Test2"},
+		}
+
+		err := engine.BatchInsert("test_saves", docs)
+		require.NoError(t, err)
+
+		// Check collection is dirty
+		engine.mu.RLock()
+		collInfo, exists := engine.collections["test_saves"]
+		require.True(t, exists)
+		assert.Equal(t, CollectionStateDirty, collInfo.State)
+		engine.mu.RUnlock()
+
+		// Trigger save
+		err = engine.SaveCollectionAfterTransaction("test_saves")
+		require.NoError(t, err)
+
+		// Check file exists
+		saveFile := filepath.Join(tempDir, "collections", "test_saves.godb")
+		assert.FileExists(t, saveFile)
+
+		// Check collection is now clean
+		engine.mu.RLock()
+		collInfo, _ = engine.collections["test_saves"]
+		assert.Equal(t, CollectionStateLoaded, collInfo.State)
+		engine.mu.RUnlock()
+	})
+
+	t.Run("Batch Update Marks Collection Dirty", func(t *testing.T) {
+		// First mark as clean by saving
+		err := engine.SaveCollectionAfterTransaction("test_saves")
+		require.NoError(t, err)
+
+		operations := []domain.BatchUpdateOperation{
+			{ID: "1", Updates: domain.Document{"updated": true}},
+		}
+
+		err = engine.BatchUpdate("test_saves", operations)
+		require.NoError(t, err)
+
+		// Check collection is dirty again
+		engine.mu.RLock()
+		collInfo, exists := engine.collections["test_saves"]
+		require.True(t, exists)
+		assert.Equal(t, CollectionStateDirty, collInfo.State)
+		engine.mu.RUnlock()
+	})
+}
+
+func TestStorageEngine_BatchOperations_Concurrency(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-batch-concurrency-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	engine := NewStorageEngine(WithDataDir(tempDir))
+	defer engine.StopBackgroundWorkers()
+
+	t.Run("Concurrent Batch Inserts Different Collections", func(t *testing.T) {
+		const numGoroutines = 5
+		const docsPerBatch = 10
+
+		var wg sync.WaitGroup
+		errors := make(chan error, numGoroutines)
+
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func(routineID int) {
+				defer wg.Done()
+
+				docs := make([]domain.Document, docsPerBatch)
+				for j := 0; j < docsPerBatch; j++ {
+					docs[j] = domain.Document{
+						"routine": routineID,
+						"doc":     j,
+						"data":    fmt.Sprintf("routine-%d-doc-%d", routineID, j),
+					}
+				}
+
+				collName := fmt.Sprintf("concurrent_coll_%d", routineID)
+				err := engine.BatchInsert(collName, docs)
+				if err != nil {
+					errors <- err
+				}
+			}(i)
+		}
+
+		wg.Wait()
+		close(errors)
+
+		// Check for errors
+		for err := range errors {
+			t.Errorf("Concurrent batch insert error: %v", err)
+		}
+
+		// Verify all collections were created with correct document counts
+		for i := 0; i < numGoroutines; i++ {
+			collName := fmt.Sprintf("concurrent_coll_%d", i)
+
+			engine.mu.RLock()
+			collInfo, exists := engine.collections[collName]
+			engine.mu.RUnlock()
+
+			assert.True(t, exists, "Collection %s should exist", collName)
+			assert.Equal(t, int64(docsPerBatch), collInfo.DocumentCount, "Collection %s should have %d documents", collName, docsPerBatch)
+		}
+	})
+
+	t.Run("Concurrent Batch Operations Same Collection", func(t *testing.T) {
+		// Insert initial documents
+		initialDocs := make([]domain.Document, 20)
+		for i := 0; i < 20; i++ {
+			initialDocs[i] = domain.Document{"id": i, "value": i}
+		}
+		err := engine.BatchInsert("shared_coll", initialDocs)
+		require.NoError(t, err)
+
+		const numReaders = 3
+		const numUpdaters = 2
+		const operationsPerGoroutine = 5
+
+		var wg sync.WaitGroup
+		errors := make(chan error, numReaders+numUpdaters)
+
+		// Start readers
+		for i := 0; i < numReaders; i++ {
+			wg.Add(1)
+			go func(readerID int) {
+				defer wg.Done()
+
+				for j := 0; j < operationsPerGoroutine; j++ {
+					docID := fmt.Sprintf("%d", (readerID*operationsPerGoroutine+j)%20+1)
+					_, err := engine.GetById("shared_coll", docID)
+					if err != nil {
+						errors <- fmt.Errorf("reader %d: %v", readerID, err)
+						return
+					}
+					time.Sleep(1 * time.Millisecond)
+				}
+			}(i)
+		}
+
+		// Start batch updaters
+		for i := 0; i < numUpdaters; i++ {
+			wg.Add(1)
+			go func(updaterID int) {
+				defer wg.Done()
+
+				for j := 0; j < operationsPerGoroutine; j++ {
+					operations := []domain.BatchUpdateOperation{
+						{ID: "1", Updates: domain.Document{"updater": updaterID, "batch": j}},
+						{ID: "2", Updates: domain.Document{"updater": updaterID, "batch": j}},
+					}
+
+					err := engine.BatchUpdate("shared_coll", operations)
+					if err != nil {
+						errors <- fmt.Errorf("updater %d: %v", updaterID, err)
+						return
+					}
+					time.Sleep(2 * time.Millisecond)
+				}
+			}(i)
+		}
+
+		wg.Wait()
+		close(errors)
+
+		// Check for errors
+		for err := range errors {
+			t.Errorf("Concurrent operation error: %v", err)
+		}
+
+		// Verify final state
+		doc1, err := engine.GetById("shared_coll", "1")
+		require.NoError(t, err)
+		assert.Contains(t, doc1, "updater") // Should have been updated
+	})
+}

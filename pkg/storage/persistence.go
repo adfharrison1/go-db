@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/adfharrison1/go-db/pkg/domain"
@@ -122,11 +123,32 @@ func (se *StorageEngine) loadCollectionFromDisk(collName string) (*domain.Collec
 		return nil, fmt.Errorf("collection %s not found in file", collName)
 	}
 	collection := domain.NewCollection(collName)
+
+	// Track the highest numeric ID to restore the counter properly
+	maxID := int64(0)
+
 	for docID, docData := range docs {
 		if doc, ok := docData.(map[string]interface{}); ok {
 			collection.Documents[docID] = domain.Document(doc)
+
+			// Try to parse the document ID as a number to find the highest one
+			if id, err := strconv.ParseInt(docID, 10, 64); err == nil {
+				if id > maxID {
+					maxID = id
+				}
+			}
 		}
 	}
+
+	// Restore the ID counter for this collection to the highest existing ID
+	// This ensures new documents get unique IDs that don't conflict with existing ones
+	se.idCountersMu.Lock()
+	se.idCounters[collName] = &maxID
+	se.idCountersMu.Unlock()
+
+	log.Printf("INFO: Loaded collection '%s' with %d documents, restored ID counter to %d",
+		collName, len(collection.Documents), maxID)
+
 	return collection, nil
 }
 

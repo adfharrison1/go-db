@@ -3,6 +3,7 @@ package storage
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -424,4 +425,144 @@ func (se *StorageEngine) optimizeWithIndexes(collName string, filter map[string]
 
 	// Single index optimization
 	return indexResults[0], true
+}
+
+// BatchInsert inserts multiple documents into a collection
+func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) error {
+	if len(docs) == 0 {
+		return fmt.Errorf("no documents provided for batch insert")
+	}
+
+	if len(docs) > 1000 {
+		return fmt.Errorf("batch insert limited to 1000 documents, got %d", len(docs))
+	}
+
+	se.mu.Lock()
+	defer se.mu.Unlock()
+
+	// Get or create collection
+	collection, err := se.getCollectionInternal(collName)
+	if err != nil {
+		// Collection doesn't exist, create it
+		collection = domain.NewCollection(collName)
+		collectionInfo := &CollectionInfo{
+			Name:          collName,
+			DocumentCount: 0,
+			State:         CollectionStateDirty,
+			LastModified:  time.Now(),
+		}
+		se.collections[collName] = collectionInfo
+		se.cache.Put(collName, collection, collectionInfo)
+	}
+
+	// Get or create ID counter for this collection
+	se.idCountersMu.Lock()
+	counter, exists := se.idCounters[collName]
+	if !exists {
+		var initialCounter int64 = 0
+		counter = &initialCounter
+		se.idCounters[collName] = counter
+	}
+	se.idCountersMu.Unlock()
+
+	// Insert all documents
+	for _, doc := range docs {
+		id := atomic.AddInt64(counter, 1)
+		newID := fmt.Sprintf("%d", id)
+
+		// Create a copy of the document and set _id
+		docCopy := make(domain.Document)
+		for k, v := range doc {
+			docCopy[k] = v
+		}
+		docCopy["_id"] = newID
+
+		// Update indexes before inserting
+		se.updateIndexes(collName, newID, nil, docCopy)
+
+		// Add to collection
+		collection.Documents[newID] = docCopy
+	}
+
+	// Mark collection as dirty
+	if _, collectionInfo, found := se.cache.Get(collName); found {
+		collectionInfo.State = CollectionStateDirty
+		collectionInfo.DocumentCount += int64(len(docs))
+		collectionInfo.LastModified = time.Now()
+	}
+
+	return nil
+}
+
+// BatchUpdate updates multiple documents in a collection
+func (se *StorageEngine) BatchUpdate(collName string, operations []domain.BatchUpdateOperation) error {
+	if len(operations) == 0 {
+		return fmt.Errorf("no operations provided for batch update")
+	}
+
+	if len(operations) > 1000 {
+		return fmt.Errorf("batch update limited to 1000 operations, got %d", len(operations))
+	}
+
+	se.mu.Lock()
+	defer se.mu.Unlock()
+
+	// Get collection
+	collection, err := se.getCollectionInternal(collName)
+	if err != nil {
+		return fmt.Errorf("collection %s does not exist", collName)
+	}
+
+	var errors []string
+	successCount := 0
+
+	// Process each update operation
+	for i, op := range operations {
+		if op.ID == "" {
+			errors = append(errors, fmt.Sprintf("operation %d: document ID cannot be empty", i))
+			continue
+		}
+
+		// Check if document exists
+		existingDoc, exists := collection.Documents[op.ID]
+		if !exists {
+			errors = append(errors, fmt.Sprintf("operation %d: document with id %s not found", i, op.ID))
+			continue
+		}
+
+		// Create a copy of the old document for index updates
+		oldDoc := make(domain.Document)
+		for k, v := range existingDoc {
+			oldDoc[k] = v
+		}
+
+		// Apply updates to the document
+		for k, v := range op.Updates {
+			if k != "_id" { // Prevent updating the document ID
+				existingDoc[k] = v
+			}
+		}
+
+		// Update indexes with the change
+		se.updateIndexes(collName, op.ID, oldDoc, existingDoc)
+
+		successCount++
+	}
+
+	if successCount > 0 {
+		// Mark collection as dirty if any updates succeeded
+		if _, collectionInfo, found := se.cache.Get(collName); found {
+			collectionInfo.State = CollectionStateDirty
+			collectionInfo.LastModified = time.Now()
+		}
+	}
+
+	// If there were errors, return them along with success count
+	if len(errors) > 0 {
+		errorMsg := fmt.Sprintf("batch update completed with %d successes and %d errors: %s",
+			successCount, len(errors), strings.Join(errors, "; "))
+		return fmt.Errorf(errorMsg)
+	}
+
+	return nil
 }

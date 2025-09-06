@@ -61,6 +61,15 @@ resp, err := ts.POST("/collections/users/insert", userDocument)
 - **Limit Parameters**: Tests result limiting with query parameters
 - **Metadata**: Verifies pagination metadata (has_next, cursors)
 
+#### Batch Operations (`TestAPI_Integration_BatchOperations`)
+
+- **Batch Insert**: Tests inserting multiple documents in a single request
+- **Batch Update**: Tests updating multiple documents by ID
+- **Large Batches**: Tests performance with 500+ documents
+- **Validation Errors**: Tests limits (1000 docs max) and empty requests
+- **Partial Failures**: Tests mixed success/failure scenarios
+- **Transaction Saves**: Verifies batch operations trigger persistence correctly
+
 ## Usage Examples
 
 ### Basic Test
@@ -114,14 +123,97 @@ documents := result["documents"].([]interface{})
 assert.Len(t, documents, expectedCount)
 ```
 
+### Batch Operations
+
+```go
+func TestAPI_BatchOperations(t *testing.T) {
+    ts := NewTestServer(t)
+    defer ts.Close(t)
+
+    // Batch Insert
+    batchInsertReq := BatchInsertRequest{
+        Documents: []map[string]interface{}{
+            {"name": "Alice", "age": 30, "department": "Engineering"},
+            {"name": "Bob", "age": 25, "department": "Sales"},
+            {"name": "Charlie", "age": 35, "department": "Engineering"},
+        },
+    }
+
+    resp, err := ts.POST("/collections/employees/batch/insert", batchInsertReq)
+    require.NoError(t, err)
+    assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+    // Parse batch insert response
+    body, err := ReadResponseBody(resp)
+    require.NoError(t, err)
+
+    var insertResp BatchInsertResponse
+    err = json.Unmarshal([]byte(body), &insertResp)
+    require.NoError(t, err)
+    assert.Equal(t, 3, insertResp.InsertedCount)
+
+    // Batch Update
+    batchUpdateReq := BatchUpdateRequest{
+        Operations: []BatchUpdateOperation{
+            {ID: "1", Updates: map[string]interface{}{"salary": 75000, "level": "Senior"}},
+            {ID: "2", Updates: map[string]interface{}{"salary": 60000, "level": "Mid"}},
+        },
+    }
+
+    resp, err = ts.PUT("/collections/employees/batch/update", batchUpdateReq)
+    require.NoError(t, err)
+    assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+    // Parse batch update response
+    body, err = ReadResponseBody(resp)
+    require.NoError(t, err)
+
+    var updateResp BatchUpdateResponse
+    err = json.Unmarshal([]byte(body), &updateResp)
+    require.NoError(t, err)
+    assert.Equal(t, 2, updateResp.UpdatedCount)
+    assert.Equal(t, 0, updateResp.FailedCount)
+}
+```
+
+### Testing Batch Validation
+
+```go
+func TestAPI_BatchValidation(t *testing.T) {
+    ts := NewTestServer(t)
+    defer ts.Close(t)
+
+    // Test batch size limit
+    tooManyDocs := make([]map[string]interface{}, 1001)
+    for i := 0; i < 1001; i++ {
+        tooManyDocs[i] = map[string]interface{}{"id": i}
+    }
+
+    largeReq := BatchInsertRequest{Documents: tooManyDocs}
+    resp, err := ts.POST("/collections/test/batch/insert", largeReq)
+    require.NoError(t, err)
+    assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+    // Test empty batch
+    emptyReq := BatchInsertRequest{Documents: []map[string]interface{}{}}
+    resp, err = ts.POST("/collections/test/batch/insert", emptyReq)
+    require.NoError(t, err)
+    assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+```
+
 ## Running Integration Tests
 
 ```bash
 # Run all integration tests
 go test ./pkg/api -v -run "TestAPI_Integration"
 
-# Run specific test
+# Run specific test categories
 go test ./pkg/api -v -run "TestAPI_Integration_BasicCRUD"
+go test ./pkg/api -v -run "TestAPI_Integration_BatchOperations"
+
+# Run batch operation tests specifically
+go test ./pkg/api -v -run "TestAPI_Integration_BatchOperations"
 
 # Run with timeout
 go test ./pkg/api -v -run "TestAPI_Integration" -timeout 60s
@@ -150,6 +242,8 @@ Each test uses:
 4. **Use `require.NoError`** for critical operations that must succeed
 5. **Use `assert.*`** for validation that should continue on failure
 6. **Test both success and error scenarios** for comprehensive coverage
+7. **Use batch operations** for testing large datasets and performance scenarios
+8. **Test batch validation** including size limits and partial failure handling
 
 ## Integration with CI/CD
 

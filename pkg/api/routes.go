@@ -9,6 +9,10 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	// Collection operations
 	router.HandleFunc("/collections/{coll}/insert", h.HandleInsert).Methods("POST")
 
+	// Batch operations
+	router.HandleFunc("/collections/{coll}/batch/insert", h.HandleBatchInsert).Methods("POST")
+	router.HandleFunc("/collections/{coll}/batch/update", h.HandleBatchUpdate).Methods("PUT")
+
 	// Document operations (by ID)
 	router.HandleFunc("/collections/{coll}/documents/{id}", h.HandleGetById).Methods("GET")
 	router.HandleFunc("/collections/{coll}/documents/{id}", h.HandleUpdateById).Methods("PUT")

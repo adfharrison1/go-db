@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -403,4 +404,226 @@ func generateRandomString(length int) string {
 		b[i] = charset[time.Now().UnixNano()%int64(len(charset))]
 	}
 	return string(b)
+}
+
+// Batch operation performance tests
+
+func TestBatchInsertPerformance(t *testing.T) {
+	engine := createIsolatedEngine(t)
+	defer engine.StopBackgroundWorkers()
+
+	t.Run("Batch Insert 1000 Documents", func(t *testing.T) {
+		// Create 1000 documents
+		docs := make([]domain.Document, 1000)
+		for i := 0; i < 1000; i++ {
+			docs[i] = domain.Document{
+				"id":          i,
+				"name":        fmt.Sprintf("User%d", i),
+				"email":       fmt.Sprintf("user%d@example.com", i),
+				"age":         20 + (i % 60),
+				"department":  []string{"Engineering", "Sales", "Marketing", "HR"}[i%4],
+				"salary":      50000 + (i * 1000),
+				"active":      i%2 == 0,
+				"description": fmt.Sprintf("This is a description for user %d with some additional text to make the document larger", i),
+			}
+		}
+
+		start := time.Now()
+		err := engine.BatchInsert("performance_users", docs)
+		duration := time.Since(start)
+
+		require.NoError(t, err)
+		t.Logf("Batch insert of 1000 documents took: %v", duration)
+
+		// Should be much faster than individual inserts
+		assert.Less(t, duration, 1*time.Second, "Batch insert should complete in under 1 second")
+
+		// Verify all documents were inserted
+		engine.mu.RLock()
+		collInfo, exists := engine.collections["performance_users"]
+		engine.mu.RUnlock()
+
+		assert.True(t, exists)
+		assert.Equal(t, int64(1000), collInfo.DocumentCount)
+	})
+
+	t.Run("Batch Insert vs Individual Inserts", func(t *testing.T) {
+		const numDocs = 500
+
+		// Test individual inserts
+		docs1 := make([]domain.Document, numDocs)
+		for i := 0; i < numDocs; i++ {
+			docs1[i] = domain.Document{
+				"id":    i,
+				"name":  fmt.Sprintf("IndividualUser%d", i),
+				"value": i * 2,
+			}
+		}
+
+		start := time.Now()
+		for _, doc := range docs1 {
+			err := engine.Insert("individual_inserts", doc)
+			require.NoError(t, err)
+		}
+		individualDuration := time.Since(start)
+
+		// Test batch insert
+		docs2 := make([]domain.Document, numDocs)
+		for i := 0; i < numDocs; i++ {
+			docs2[i] = domain.Document{
+				"id":    i,
+				"name":  fmt.Sprintf("BatchUser%d", i),
+				"value": i * 2,
+			}
+		}
+
+		start = time.Now()
+		err := engine.BatchInsert("batch_inserts", docs2)
+		batchDuration := time.Since(start)
+
+		require.NoError(t, err)
+
+		t.Logf("Individual inserts (%d docs): %v", numDocs, individualDuration)
+		t.Logf("Batch insert (%d docs): %v", numDocs, batchDuration)
+		t.Logf("Batch is %.2fx faster", float64(individualDuration)/float64(batchDuration))
+
+		// For small batches, performance might be similar due to overhead
+		// We mainly verify that batch operations work correctly and aren't significantly slower
+		performanceRatio := float64(batchDuration) / float64(individualDuration)
+		assert.Less(t, performanceRatio, 2.0, "Batch insert should not be more than 2x slower than individual inserts")
+
+		// Log the results for manual analysis
+		if batchDuration < individualDuration {
+			t.Logf("✓ Batch is faster")
+		} else {
+			t.Logf("ℹ Individual inserts are faster for this batch size, which can be normal due to overhead")
+		}
+	})
+}
+
+func TestBatchUpdatePerformance(t *testing.T) {
+	engine := createIsolatedEngine(t)
+	defer engine.StopBackgroundWorkers()
+
+	// Setup: Insert 1000 documents for updating
+	setupDocs := make([]domain.Document, 1000)
+	for i := 0; i < 1000; i++ {
+		setupDocs[i] = domain.Document{
+			"id":     i,
+			"name":   fmt.Sprintf("User%d", i),
+			"salary": 50000,
+			"level":  1,
+		}
+	}
+
+	err := engine.BatchInsert("update_performance", setupDocs)
+	require.NoError(t, err)
+
+	t.Run("Batch Update 1000 Documents", func(t *testing.T) {
+		// Create 1000 update operations
+		operations := make([]domain.BatchUpdateOperation, 1000)
+		for i := 0; i < 1000; i++ {
+			operations[i] = domain.BatchUpdateOperation{
+				ID: fmt.Sprintf("%d", i+1), // IDs start from 1
+				Updates: domain.Document{
+					"salary":     55000 + (i * 100),
+					"level":      2,
+					"updated_at": time.Now().Unix(),
+					"bonus":      i%2 == 0,
+				},
+			}
+		}
+
+		start := time.Now()
+		err := engine.BatchUpdate("update_performance", operations)
+		duration := time.Since(start)
+
+		require.NoError(t, err)
+		t.Logf("Batch update of 1000 documents took: %v", duration)
+
+		// Should complete reasonably quickly
+		assert.Less(t, duration, 2*time.Second, "Batch update should complete in under 2 seconds")
+
+		// Verify a few random updates
+		doc1, err := engine.GetById("update_performance", "1")
+		require.NoError(t, err)
+		assert.Equal(t, 55000, doc1["salary"])
+		assert.Equal(t, 2, doc1["level"])
+
+		doc500, err := engine.GetById("update_performance", "500")
+		require.NoError(t, err)
+		assert.Equal(t, 55000+(499*100), doc500["salary"])
+	})
+
+	t.Run("Batch Update vs Individual Updates", func(t *testing.T) {
+		const numUpdates = 200
+
+		// Test individual updates
+		start := time.Now()
+		for i := 0; i < numUpdates; i++ {
+			updates := domain.Document{
+				"individual_update": true,
+				"timestamp":         time.Now().Unix(),
+			}
+			err := engine.UpdateById("update_performance", fmt.Sprintf("%d", i+1), updates)
+			require.NoError(t, err)
+		}
+		individualDuration := time.Since(start)
+
+		// Test batch update
+		operations := make([]domain.BatchUpdateOperation, numUpdates)
+		for i := 0; i < numUpdates; i++ {
+			operations[i] = domain.BatchUpdateOperation{
+				ID: fmt.Sprintf("%d", i+1),
+				Updates: domain.Document{
+					"batch_update": true,
+					"timestamp":    time.Now().Unix(),
+				},
+			}
+		}
+
+		start = time.Now()
+		err := engine.BatchUpdate("update_performance", operations)
+		batchDuration := time.Since(start)
+
+		require.NoError(t, err)
+
+		t.Logf("Individual updates (%d ops): %v", numUpdates, individualDuration)
+		t.Logf("Batch update (%d ops): %v", numUpdates, batchDuration)
+		t.Logf("Batch is %.2fx faster", float64(individualDuration)/float64(batchDuration))
+
+		// Batch should be faster
+		assert.Less(t, batchDuration, individualDuration, "Batch update should be faster than individual updates")
+	})
+}
+
+func TestBatchOperationsMemoryUsage(t *testing.T) {
+	engine := createIsolatedEngine(t)
+	defer engine.StopBackgroundWorkers()
+
+	t.Run("Memory Usage During Large Batch Operations", func(t *testing.T) {
+		runtime.GC()
+		initialStats := engine.GetMemoryStats()
+
+		// Large batch insert (within limit)
+		docs := make([]domain.Document, 1000)
+		for i := 0; i < 1000; i++ {
+			docs[i] = domain.Document{
+				"id":          i,
+				"data":        make([]byte, 1024), // 1KB per document
+				"description": strings.Repeat("test", 100),
+			}
+		}
+
+		err := engine.BatchInsert("memory_test", docs)
+		require.NoError(t, err)
+
+		afterInsertStats := engine.GetMemoryStats()
+
+		t.Logf("Initial memory stats: %v", initialStats)
+		t.Logf("After batch insert stats: %v", afterInsertStats)
+
+		// Memory usage should be reasonable (not testing exact values due to GC unpredictability)
+		assert.NotNil(t, afterInsertStats)
+	})
 }

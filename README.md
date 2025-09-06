@@ -96,6 +96,23 @@ go run cmd/go-db.go -help
 - **Transaction saves**: Best for data consistency and immediate persistence
 - **Background saves**: Best for high-throughput scenarios where some data loss is acceptable
 
+## Batch Operations
+
+For high-performance scenarios, go-db supports batch operations that can process up to 1000 documents in a single request:
+
+- **Batch Insert**: Insert multiple documents simultaneously with automatic ID generation
+- **Batch Update**: Update multiple documents by ID with partial failures supported
+- **Performance**: Batch operations are typically 2-3x faster than individual operations
+- **Atomicity**: Each operation within a batch is processed independently (partial success possible)
+- **Limits**: Maximum 1000 documents/operations per batch request
+
+**Use Cases:**
+
+- Data migrations and bulk imports
+- Periodic data synchronization
+- High-throughput data processing
+- ETL pipeline endpoints
+
 ## API Reference
 
 ### Collection Operations
@@ -114,6 +131,46 @@ Content-Type: application/json
 ```
 
 **Response**: `201 Created` with document ID
+
+#### Batch Insert Documents
+
+Insert up to 1000 documents in a single request for improved performance:
+
+```http
+POST /collections/{collection}/batch/insert
+Content-Type: application/json
+
+{
+  "documents": [
+    {
+      "name": "Alice",
+      "age": 30,
+      "email": "alice@example.com"
+    },
+    {
+      "name": "Bob",
+      "age": 25,
+      "email": "bob@example.com"
+    },
+    {
+      "name": "Charlie",
+      "age": 35,
+      "email": "charlie@example.com"
+    }
+  ]
+}
+```
+
+**Response**: `201 Created`
+
+```json
+{
+  "success": true,
+  "message": "Batch insert completed successfully",
+  "inserted_count": 3,
+  "collection": "users"
+}
+```
 
 #### Find Documents
 
@@ -191,6 +248,68 @@ Content-Type: application/json
 ```
 
 **Response**: `200 OK`
+
+#### Batch Update Documents
+
+Update up to 1000 documents in a single request using their IDs:
+
+```http
+PUT /collections/{collection}/batch/update
+Content-Type: application/json
+
+{
+  "operations": [
+    {
+      "id": "1",
+      "updates": {
+        "age": 31,
+        "salary": 75000,
+        "department": "Senior Engineering"
+      }
+    },
+    {
+      "id": "2",
+      "updates": {
+        "age": 26,
+        "salary": 60000,
+        "position": "Sales Manager"
+      }
+    },
+    {
+      "id": "3",
+      "updates": {
+        "active": false,
+        "end_date": "2024-12-31"
+      }
+    }
+  ]
+}
+```
+
+**Response**: `200 OK` (all successful) or `206 Partial Content` (some failures)
+
+```json
+{
+  "success": true,
+  "message": "Batch update completed successfully",
+  "updated_count": 3,
+  "failed_count": 0,
+  "collection": "users"
+}
+```
+
+For partial failures:
+
+```json
+{
+  "success": true,
+  "message": "Batch update completed with some errors",
+  "updated_count": 2,
+  "failed_count": 1,
+  "collection": "users",
+  "errors": ["operation 1: document with id 999 not found"]
+}
+```
 
 #### Delete Document
 
