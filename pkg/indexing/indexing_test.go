@@ -125,7 +125,7 @@ func TestIndexMaintenance(t *testing.T) {
 	assert.Len(t, results.Documents, 2)
 
 	// Update a document
-	err = engine.UpdateById("products", "1", domain.Document{"category": "computers"})
+	_, err = engine.UpdateById("products", "1", domain.Document{"category": "computers"})
 	assert.NoError(t, err)
 
 	// Verify index is updated
@@ -176,7 +176,7 @@ func TestAutomaticIdIndex(t *testing.T) {
 	assert.Equal(t, "Bob", doc["name"])
 
 	// Test UpdateById operations
-	err = engine.UpdateById("test", "1", domain.Document{"name": "Alice Updated"})
+	_, err = engine.UpdateById("test", "1", domain.Document{"name": "Alice Updated"})
 	assert.NoError(t, err)
 
 	doc, err = engine.GetById("test", "1")
