@@ -2571,3 +2571,112 @@ func TestStorageEngine_BatchOperations_Concurrency(t *testing.T) {
 		assert.Contains(t, doc1, "updater") // Should have been updated
 	})
 }
+
+func TestStorageEngine_BatchInsert_Atomic(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "go-db-batch-atomic-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	engine := NewStorageEngine(WithDataDir(tempDir))
+	defer engine.StopBackgroundWorkers()
+
+	t.Run("Atomic Success - All Documents Inserted", func(t *testing.T) {
+		docs := []domain.Document{
+			{"name": "Alice", "age": 30},
+			{"name": "Bob", "age": 25},
+			{"name": "Charlie", "age": 35},
+		}
+
+		err := engine.BatchInsert("users", docs)
+		require.NoError(t, err)
+
+		// Verify all documents were inserted
+		for i := 1; i <= 3; i++ {
+			doc, err := engine.GetById("users", fmt.Sprintf("%d", i))
+			require.NoError(t, err)
+			assert.NotEmpty(t, doc["name"])
+		}
+
+		// Verify collection state
+		collection, err := engine.GetCollection("users")
+		require.NoError(t, err)
+		assert.Len(t, collection.Documents, 3)
+	})
+
+	t.Run("Atomic Failure - ID Conflict Prevention", func(t *testing.T) {
+		// Insert an initial document to set up the ID counter
+		initialDoc := domain.Document{"name": "Initial", "age": 40}
+		err := engine.Insert("products", initialDoc)
+		require.NoError(t, err)
+
+		// Get the current state before batch insert
+		collectionBefore, err := engine.GetCollection("products")
+		require.NoError(t, err)
+		docCountBefore := len(collectionBefore.Documents)
+
+		// Manually create a conflict by inserting a document with a future ID
+		// This simulates the scenario where our atomic batch insert detects a conflict
+		conflictDoc := domain.Document{"name": "Conflict", "age": 50, "_id": "3"}
+		collectionBefore.Documents["3"] = conflictDoc
+
+		// Now try batch insert that would create IDs "2", "3", "4"
+		docs := []domain.Document{
+			{"name": "Product A", "price": 100},
+			{"name": "Product B", "price": 200}, // This would get ID "3" - conflict!
+			{"name": "Product C", "price": 300},
+		}
+
+		err = engine.BatchInsert("products", docs)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "already exists")
+
+		// Verify NO documents were inserted from the batch (atomic rollback)
+		collectionAfter, err := engine.GetCollection("products")
+		require.NoError(t, err)
+
+		// Should only have the initial document (1) and the conflict document (3)
+		assert.Len(t, collectionAfter.Documents, docCountBefore+1) // +1 for manually added conflict
+
+		// Verify the intended batch documents were NOT inserted
+		_, err = engine.GetById("products", "2")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+
+		// ID "3" should still be the conflict document, not from our batch
+		doc3, err := engine.GetById("products", "3")
+		require.NoError(t, err)
+		assert.Equal(t, "Conflict", doc3["name"])
+
+		_, err = engine.GetById("products", "4")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("Validation Failures Prevent Collection Creation", func(t *testing.T) {
+		// Test 1: Empty document list - should fail before any collection creation
+		_, err := engine.GetCollection("empty_test")
+		assert.Error(t, err) // Collection shouldn't exist
+
+		err = engine.BatchInsert("empty_test", []domain.Document{})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no documents provided")
+
+		// Verify no collection was created
+		_, exists := engine.collections["empty_test"]
+		assert.False(t, exists)
+
+		// Test 2: Too many documents - should fail before any collection creation
+		tooManyDocs := make([]domain.Document, 1001)
+		for i := 0; i < 1001; i++ {
+			tooManyDocs[i] = domain.Document{"id": i}
+		}
+
+		err = engine.BatchInsert("large_test", tooManyDocs)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "limited to 1000 documents")
+
+		// Verify no collection was created
+		_, exists = engine.collections["large_test"]
+		assert.False(t, exists)
+	})
+}

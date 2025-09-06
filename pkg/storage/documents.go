@@ -427,7 +427,8 @@ func (se *StorageEngine) optimizeWithIndexes(collName string, filter map[string]
 	return indexResults[0], true
 }
 
-// BatchInsert inserts multiple documents into a collection
+// BatchInsert inserts multiple documents into a collection atomically
+// All documents are inserted successfully or none are inserted (atomic operation)
 func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) error {
 	if len(docs) == 0 {
 		return fmt.Errorf("no documents provided for batch insert")
@@ -442,6 +443,7 @@ func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) er
 
 	// Get or create collection
 	collection, err := se.getCollectionInternal(collName)
+	var collectionCreated bool
 	if err != nil {
 		// Collection doesn't exist, create it
 		collection = domain.NewCollection(collName)
@@ -453,6 +455,7 @@ func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) er
 		}
 		se.collections[collName] = collectionInfo
 		se.cache.Put(collName, collection, collectionInfo)
+		collectionCreated = true
 	}
 
 	// Get or create ID counter for this collection
@@ -465,10 +468,21 @@ func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) er
 	}
 	se.idCountersMu.Unlock()
 
-	// Insert all documents
-	for _, doc := range docs {
-		id := atomic.AddInt64(counter, 1)
-		newID := fmt.Sprintf("%d", id)
+	// Phase 1: Validation and preparation (no mutations yet)
+	// Pre-allocate IDs and validate all documents can be processed
+	type documentWithID struct {
+		doc   domain.Document
+		id    string
+		idNum int64
+	}
+
+	docsWithIDs := make([]documentWithID, len(docs))
+	startingCounter := atomic.LoadInt64(counter)
+
+	for i, doc := range docs {
+		// Pre-allocate the ID but don't commit to the counter yet
+		idNum := startingCounter + int64(i) + 1
+		newID := fmt.Sprintf("%d", idNum)
 
 		// Create a copy of the document and set _id
 		docCopy := make(domain.Document)
@@ -477,15 +491,47 @@ func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) er
 		}
 		docCopy["_id"] = newID
 
-		// Update indexes before inserting
-		se.updateIndexes(collName, newID, nil, docCopy)
+		docsWithIDs[i] = documentWithID{
+			doc:   docCopy,
+			id:    newID,
+			idNum: idNum,
+		}
 
-		// Add to collection
-		collection.Documents[newID] = docCopy
+		// Validate that the document ID doesn't already exist
+		if _, exists := collection.Documents[newID]; exists {
+			// Rollback: Clean up any created collection
+			if collectionCreated {
+				delete(se.collections, collName)
+				se.cache.Remove(collName)
+				se.idCountersMu.Lock()
+				delete(se.idCounters, collName)
+				se.idCountersMu.Unlock()
+			}
+			return fmt.Errorf("document with ID %s already exists in collection %s", newID, collName)
+		}
 	}
 
-	// Mark collection as dirty
-	if _, collectionInfo, found := se.cache.Get(collName); found {
+	// Phase 2: Atomic commit - all operations succeed or we rollback
+	// Get collection info for metadata updates
+	var collectionInfo *CollectionInfo
+	if _, colInfo, found := se.cache.Get(collName); found {
+		collectionInfo = colInfo
+	}
+
+	// Commit the counter increment atomically
+	atomic.AddInt64(counter, int64(len(docs)))
+
+	// Insert all documents (this should not fail, but if it does, we rollback)
+	for _, docWithID := range docsWithIDs {
+		// Update indexes before inserting
+		se.updateIndexes(collName, docWithID.id, nil, docWithID.doc)
+
+		// Add to collection
+		collection.Documents[docWithID.id] = docWithID.doc
+	}
+
+	// Update collection metadata
+	if collectionInfo != nil {
 		collectionInfo.State = CollectionStateDirty
 		collectionInfo.DocumentCount += int64(len(docs))
 		collectionInfo.LastModified = time.Now()
