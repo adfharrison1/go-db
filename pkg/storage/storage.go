@@ -115,16 +115,16 @@ func (se *StorageEngine) SaveCollectionAfterTransaction(collName string) error {
 		return nil // Transaction saves disabled
 	}
 
-	// Only save if the collection is dirty
-	se.mu.RLock()
-	collInfo, exists := se.collections[collName]
-	if !exists || collInfo.State != CollectionStateDirty {
-		se.mu.RUnlock()
-		return nil // Collection doesn't exist or isn't dirty
-	}
-	se.mu.RUnlock()
+	// Use collection write lock to prevent concurrent modifications during save
+	return se.withCollectionWriteLock(collName, func() error {
+		// Only save if the collection is dirty
+		collInfo, exists := se.collections[collName]
+		if !exists || collInfo.State != CollectionStateDirty {
+			return nil // Collection doesn't exist or isn't dirty
+		}
 
-	return se.saveCollectionToFile(collName)
+		return se.saveCollectionToFileUnsafe(collName)
+	})
 }
 
 // IsTransactionSaveEnabled returns whether transaction-based saves are enabled

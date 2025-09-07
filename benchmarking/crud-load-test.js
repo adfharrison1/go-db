@@ -7,9 +7,9 @@ const errorRate = new Rate('errors');
 
 export const options = {
   stages: [
-    { duration: '30s', target: 10 }, // Ramp up to 10 users
-    { duration: '1m', target: 10 }, // Stay at 10 users
-    { duration: '30s', target: 0 }, // Ramp down to 0 users
+    { duration: '15s', target: 10 }, // Ramp up to 10 users
+    { duration: '30s', target: 10 }, // Stay at 10 users
+    { duration: '15s', target: 0 }, // Ramp down to 0 users
   ],
   thresholds: {
     http_req_duration: ['p(95)<100'], // 95% of requests under 100ms

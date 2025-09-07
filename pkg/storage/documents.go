@@ -11,8 +11,22 @@ import (
 
 // Insert inserts a document into a collection and returns the created document with ID
 func (se *StorageEngine) Insert(collName string, doc domain.Document) (domain.Document, error) {
-	se.mu.Lock()
-	defer se.mu.Unlock()
+	var result domain.Document
+	var resultErr error
+
+	err := se.withCollectionWriteLock(collName, func() error {
+		result, resultErr = se.insertUnsafe(collName, doc)
+		return resultErr
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// insertUnsafe performs the actual insert operation (caller must hold collection write lock)
+func (se *StorageEngine) insertUnsafe(collName string, doc domain.Document) (domain.Document, error) {
 	// Get or load collection
 	collection, err := se.getCollectionInternal(collName)
 	if err != nil {
@@ -62,9 +76,22 @@ func (se *StorageEngine) Insert(collName string, doc domain.Document) (domain.Do
 
 // GetById retrieves a specific document by its ID
 func (se *StorageEngine) GetById(collName, docId string) (domain.Document, error) {
-	se.mu.RLock()
-	defer se.mu.RUnlock()
+	var result domain.Document
+	var resultErr error
 
+	err := se.withCollectionReadLock(collName, func() error {
+		result, resultErr = se.getByIdUnsafe(collName, docId)
+		return resultErr
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// getByIdUnsafe performs the actual get operation (caller must hold collection read lock)
+func (se *StorageEngine) getByIdUnsafe(collName, docId string) (domain.Document, error) {
 	collection, err := se.getCollectionInternal(collName)
 	if err != nil {
 		return nil, err
@@ -80,8 +107,22 @@ func (se *StorageEngine) GetById(collName, docId string) (domain.Document, error
 
 // UpdateById updates a specific document by its ID and returns the updated document
 func (se *StorageEngine) UpdateById(collName, docId string, updates domain.Document) (domain.Document, error) {
-	se.mu.Lock()
-	defer se.mu.Unlock()
+	var result domain.Document
+	var resultErr error
+
+	err := se.withCollectionWriteLock(collName, func() error {
+		result, resultErr = se.updateByIdUnsafe(collName, docId, updates)
+		return resultErr
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// updateByIdUnsafe performs the actual update operation (caller must hold collection write lock)
+func (se *StorageEngine) updateByIdUnsafe(collName, docId string, updates domain.Document) (domain.Document, error) {
 
 	collection, err := se.getCollectionInternal(collName)
 	if err != nil {
@@ -120,8 +161,22 @@ func (se *StorageEngine) UpdateById(collName, docId string, updates domain.Docum
 
 // ReplaceById completely replaces a document with new content (PUT operation)
 func (se *StorageEngine) ReplaceById(collName, docId string, newDoc domain.Document) (domain.Document, error) {
-	se.mu.Lock()
-	defer se.mu.Unlock()
+	var result domain.Document
+	var resultErr error
+
+	err := se.withCollectionWriteLock(collName, func() error {
+		result, resultErr = se.replaceByIdUnsafe(collName, docId, newDoc)
+		return resultErr
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// replaceByIdUnsafe performs the actual replace operation (caller must hold collection write lock)
+func (se *StorageEngine) replaceByIdUnsafe(collName, docId string, newDoc domain.Document) (domain.Document, error) {
 
 	collection, err := se.getCollectionInternal(collName)
 	if err != nil {
@@ -159,9 +214,13 @@ func (se *StorageEngine) ReplaceById(collName, docId string, newDoc domain.Docum
 
 // DeleteById removes a specific document by its ID
 func (se *StorageEngine) DeleteById(collName, docId string) error {
-	se.mu.Lock()
-	defer se.mu.Unlock()
+	return se.withCollectionWriteLock(collName, func() error {
+		return se.deleteByIdUnsafe(collName, docId)
+	})
+}
 
+// deleteByIdUnsafe performs the actual delete operation (caller must hold collection write lock)
+func (se *StorageEngine) deleteByIdUnsafe(collName, docId string) error {
 	collection, err := se.getCollectionInternal(collName)
 	if err != nil {
 		return err
@@ -198,14 +257,52 @@ func (se *StorageEngine) FindAll(collName string, filter map[string]interface{},
 		return nil, fmt.Errorf("invalid pagination options: %w", err)
 	}
 
-	docChan, err := se.docGenerator(collName, filter, nil)
+	var result *domain.PaginationResult
+	var resultErr error
+
+	err := se.withCollectionReadLock(collName, func() error {
+		result, resultErr = se.findAllUnsafe(collName, filter, options)
+		return resultErr
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// findAllUnsafe performs the actual find operation (caller must hold collection read lock)
+func (se *StorageEngine) findAllUnsafe(collName string, filter map[string]interface{}, options *domain.PaginationOptions) (*domain.PaginationResult, error) {
+	collection, err := se.getCollectionInternal(collName)
 	if err != nil {
 		return nil, err
 	}
 
 	var allDocs []domain.Document
-	for doc := range docChan {
-		allDocs = append(allDocs, doc)
+	var candidateIDs []string
+	var useIndex bool
+
+	// Try to use index optimization if filter is present
+	if len(filter) > 0 {
+		candidateIDs, useIndex = se.optimizeWithIndexes(collName, filter)
+	}
+
+	if useIndex {
+		// Use index optimization
+		for _, docID := range candidateIDs {
+			if doc, exists := collection.Documents[docID]; exists {
+				if MatchesFilter(doc, filter) {
+					allDocs = append(allDocs, doc)
+				}
+			}
+		}
+	} else {
+		// Full scan
+		for _, doc := range collection.Documents {
+			if len(filter) == 0 || MatchesFilter(doc, filter) {
+				allDocs = append(allDocs, doc)
+			}
+		}
 	}
 
 	return se.applyPagination(allDocs, options)
@@ -480,8 +577,22 @@ func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) ([
 		return nil, fmt.Errorf("batch insert limited to 1000 documents, got %d", len(docs))
 	}
 
-	se.mu.Lock()
-	defer se.mu.Unlock()
+	var result []domain.Document
+	var resultErr error
+
+	err := se.withCollectionWriteLock(collName, func() error {
+		result, resultErr = se.batchInsertUnsafe(collName, docs)
+		return resultErr
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// batchInsertUnsafe performs the actual batch insert operation (caller must hold collection write lock)
+func (se *StorageEngine) batchInsertUnsafe(collName string, docs []domain.Document) ([]domain.Document, error) {
 
 	// Get or create collection
 	collection, err := se.getCollectionInternal(collName)
@@ -603,8 +714,22 @@ func (se *StorageEngine) BatchUpdate(collName string, operations []domain.BatchU
 		return nil, fmt.Errorf("batch update limited to 1000 operations, got %d", len(operations))
 	}
 
-	se.mu.Lock()
-	defer se.mu.Unlock()
+	var result []domain.Document
+	var resultErr error
+
+	err := se.withCollectionWriteLock(collName, func() error {
+		result, resultErr = se.batchUpdateUnsafe(collName, operations)
+		return resultErr
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// batchUpdateUnsafe performs the actual batch update operation (caller must hold collection write lock)
+func (se *StorageEngine) batchUpdateUnsafe(collName string, operations []domain.BatchUpdateOperation) ([]domain.Document, error) {
 
 	// Get collection
 	collection, err := se.getCollectionInternal(collName)

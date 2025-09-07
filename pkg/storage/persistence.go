@@ -267,79 +267,78 @@ func (se *StorageEngine) saveDirtyCollections() {
 func (se *StorageEngine) saveCollectionToFile(collName string) error {
 	// Use write lock for this collection to prevent modifications during save
 	return se.withCollectionWriteLock(collName, func() error {
-		// Mark collection as being saved
-		lock := se.getOrCreateCollectionLock(collName)
-		lock.saving = true
-		defer func() { lock.saving = false }()
-
-		// Get collection from cache
-		se.mu.RLock()
-		cachedCollection, collectionInfo, found := se.cache.Get(collName)
-		if !found {
-			se.mu.RUnlock()
-			return fmt.Errorf("collection %s not found in cache", collName)
-		}
-
-		// Check if still dirty (might have been saved by another goroutine)
-		if collectionInfo.State != CollectionStateDirty {
-			se.mu.RUnlock()
-			return nil // Already saved, skip
-		}
-		se.mu.RUnlock()
-
-		// Prepare storage data
-		storageData := NewStorageData()
-		storageData.Collections[collName] = make(map[string]interface{})
-
-		for docID, doc := range cachedCollection.Documents {
-			storageData.Collections[collName][docID] = map[string]interface{}(doc)
-		}
-
-		// Serialize and compress
-		msgpackData, err := msgpack.Marshal(storageData)
-		if err != nil {
-			return fmt.Errorf("failed to encode MessagePack: %w", err)
-		}
-
-		compressedData := make([]byte, lz4.CompressBlockBound(len(msgpackData)))
-		var hashTable [1 << 16]int
-		n, err := lz4.CompressBlock(msgpackData, compressedData, hashTable[:])
-		if err != nil {
-			return fmt.Errorf("failed to compress data: %w", err)
-		}
-		compressedData = compressedData[:n]
-
-		// Ensure collections directory exists
-		collectionsDir := filepath.Join(se.dataDir, "collections")
-		if err := os.MkdirAll(collectionsDir, 0755); err != nil {
-			return fmt.Errorf("failed to create collections directory: %w", err)
-		}
-
-		// Write to file
-		filename := filepath.Join(collectionsDir, collName+".godb")
-		file, err := os.Create(filename)
-		if err != nil {
-			return fmt.Errorf("failed to create file: %w", err)
-		}
-		defer file.Close()
-
-		if err := WriteHeader(file); err != nil {
-			return fmt.Errorf("failed to write header: %w", err)
-		}
-
-		if _, err := file.Write(compressedData); err != nil {
-			return fmt.Errorf("failed to write compressed data: %w", err)
-		}
-
-		// Update collection state to clean
-		se.mu.Lock()
-		if info, exists := se.collections[collName]; exists {
-			info.State = CollectionStateLoaded // Mark as clean
-			info.SizeOnDisk = int64(len(compressedData))
-		}
-		se.mu.Unlock()
-
-		log.Printf("DEBUG: Saved collection %s (%d bytes compressed)", collName, len(compressedData))
-		return nil
+		return se.saveCollectionToFileUnsafe(collName)
 	})
+}
+
+// saveCollectionToFileUnsafe saves a collection without acquiring locks (caller must hold collection write lock)
+func (se *StorageEngine) saveCollectionToFileUnsafe(collName string) error {
+	// Mark collection as being saved
+	lock := se.getOrCreateCollectionLock(collName)
+	lock.saving = true
+	defer func() { lock.saving = false }()
+
+	// Get collection from cache (already holding collection write lock)
+	cachedCollection, collectionInfo, found := se.cache.Get(collName)
+	if !found {
+		return fmt.Errorf("collection %s not found in cache", collName)
+	}
+
+	// Check if still dirty (might have been saved by another goroutine)
+	if collectionInfo.State != CollectionStateDirty {
+		return nil // Already saved, skip
+	}
+
+	// Prepare storage data
+	storageData := NewStorageData()
+	storageData.Collections[collName] = make(map[string]interface{})
+
+	for docID, doc := range cachedCollection.Documents {
+		storageData.Collections[collName][docID] = map[string]interface{}(doc)
+	}
+
+	// Serialize and compress
+	msgpackData, err := msgpack.Marshal(storageData)
+	if err != nil {
+		return fmt.Errorf("failed to encode MessagePack: %w", err)
+	}
+
+	compressedData := make([]byte, lz4.CompressBlockBound(len(msgpackData)))
+	var hashTable [1 << 16]int
+	n, err := lz4.CompressBlock(msgpackData, compressedData, hashTable[:])
+	if err != nil {
+		return fmt.Errorf("failed to compress data: %w", err)
+	}
+	compressedData = compressedData[:n]
+
+	// Ensure collections directory exists
+	collectionsDir := filepath.Join(se.dataDir, "collections")
+	if err := os.MkdirAll(collectionsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create collections directory: %w", err)
+	}
+
+	// Write to file
+	filename := filepath.Join(collectionsDir, collName+".godb")
+	file, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer file.Close()
+
+	if err := WriteHeader(file); err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
+	}
+
+	if _, err := file.Write(compressedData); err != nil {
+		return fmt.Errorf("failed to write compressed data: %w", err)
+	}
+
+	// Update collection state to clean (already holding collection write lock)
+	if info, exists := se.collections[collName]; exists {
+		info.State = CollectionStateLoaded // Mark as clean
+		info.SizeOnDisk = int64(len(compressedData))
+	}
+
+	log.Printf("DEBUG: Saved collection %s (%d bytes compressed)", collName, len(compressedData))
+	return nil
 }
