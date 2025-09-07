@@ -69,6 +69,27 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 
 		docs := findResult["documents"].([]interface{})
 		assert.Len(t, docs, 5)
+
+		// Verify that _id index was automatically created
+		indexResp, err := ts.GET("/collections/employees/indexes")
+		require.NoError(t, err)
+		assert.Equal(t, 200, indexResp.StatusCode)
+
+		indexBody, err := ReadResponseBody(indexResp)
+		require.NoError(t, err)
+
+		var indexResult map[string]interface{}
+		err = json.Unmarshal([]byte(indexBody), &indexResult)
+		require.NoError(t, err)
+
+		assert.Equal(t, true, indexResult["success"])
+		assert.Equal(t, "employees", indexResult["collection"])
+		assert.Equal(t, float64(1), indexResult["index_count"])
+
+		indexes, ok := indexResult["indexes"].([]interface{})
+		require.True(t, ok)
+		assert.Len(t, indexes, 1)
+		assert.Contains(t, indexes, "_id")
 	})
 
 	t.Run("Batch Update", func(t *testing.T) {
@@ -266,5 +287,93 @@ func TestAPI_Integration_BatchOperations(t *testing.T) {
 		err = json.Unmarshal([]byte(body), &response)
 		require.NoError(t, err)
 		assert.True(t, response.Success)
+	})
+
+	t.Run("Batch Insert _id Index Creation and Updates", func(t *testing.T) {
+		// Test that batch insert creates _id index and updates it properly
+		documents := []map[string]interface{}{
+			{"name": "BatchUser1", "age": 25},
+			{"name": "BatchUser2", "age": 30},
+			{"name": "BatchUser3", "age": 35},
+		}
+
+		// First batch insert - should create collection and _id index
+		insertReq := BatchInsertRequest{Documents: documents}
+		resp, err := ts.POST("/collections/batch_id_test/batch", insertReq)
+		require.NoError(t, err)
+		assert.Equal(t, 201, resp.StatusCode)
+
+		// Verify _id index was created
+		indexResp, err := ts.GET("/collections/batch_id_test/indexes")
+		require.NoError(t, err)
+		assert.Equal(t, 200, indexResp.StatusCode)
+
+		indexBody, err := ReadResponseBody(indexResp)
+		require.NoError(t, err)
+
+		var indexResult map[string]interface{}
+		err = json.Unmarshal([]byte(indexBody), &indexResult)
+		require.NoError(t, err)
+
+		assert.Equal(t, true, indexResult["success"])
+		assert.Equal(t, "batch_id_test", indexResult["collection"])
+		assert.Equal(t, float64(1), indexResult["index_count"])
+
+		indexes, ok := indexResult["indexes"].([]interface{})
+		require.True(t, ok)
+		assert.Len(t, indexes, 1)
+		assert.Contains(t, indexes, "_id")
+
+		// Second batch insert - should NOT recreate _id index, but should update it
+		moreDocuments := []map[string]interface{}{
+			{"name": "BatchUser4", "age": 40},
+			{"name": "BatchUser5", "age": 45},
+		}
+
+		insertReq2 := BatchInsertRequest{Documents: moreDocuments}
+		resp, err = ts.POST("/collections/batch_id_test/batch", insertReq2)
+		require.NoError(t, err)
+		assert.Equal(t, 201, resp.StatusCode)
+
+		// Verify _id index still exists and count is still 1 (not recreated)
+		indexResp, err = ts.GET("/collections/batch_id_test/indexes")
+		require.NoError(t, err)
+		assert.Equal(t, 200, indexResp.StatusCode)
+
+		indexBody, err = ReadResponseBody(indexResp)
+		require.NoError(t, err)
+
+		err = json.Unmarshal([]byte(indexBody), &indexResult)
+		require.NoError(t, err)
+
+		assert.Equal(t, true, indexResult["success"])
+		assert.Equal(t, "batch_id_test", indexResult["collection"])
+		assert.Equal(t, float64(1), indexResult["index_count"]) // Still only 1 index
+
+		indexes, ok = indexResult["indexes"].([]interface{})
+		require.True(t, ok)
+		assert.Len(t, indexes, 1)
+		assert.Contains(t, indexes, "_id")
+
+		// Verify all documents can be found (index is working)
+		findResp, err := ts.GET("/collections/batch_id_test/find")
+		require.NoError(t, err)
+		assert.Equal(t, 200, findResp.StatusCode)
+
+		findBody, err := ReadResponseBody(findResp)
+		require.NoError(t, err)
+
+		var findResult map[string]interface{}
+		err = json.Unmarshal([]byte(findBody), &findResult)
+		require.NoError(t, err)
+
+		docs := findResult["documents"].([]interface{})
+		assert.Len(t, docs, 5) // All 5 documents should be found
+
+		// Verify all documents have _id fields
+		for _, docInterface := range docs {
+			doc := docInterface.(map[string]interface{})
+			assert.Contains(t, doc, "_id")
+		}
 	})
 }

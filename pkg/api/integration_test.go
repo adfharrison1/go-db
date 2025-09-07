@@ -169,6 +169,27 @@ func TestAPI_Integration_BasicCRUD(t *testing.T) {
 		// Verify file was created due to transaction save
 		usersFile := filepath.Join(ts.TempDir, "collections", "users.godb")
 		assert.FileExists(t, usersFile)
+
+		// Verify that _id index was automatically created
+		indexResp, err := ts.GET("/collections/users/indexes")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, indexResp.StatusCode)
+
+		indexBody, err := ReadResponseBody(indexResp)
+		require.NoError(t, err)
+
+		var indexResult map[string]interface{}
+		err = json.Unmarshal([]byte(indexBody), &indexResult)
+		require.NoError(t, err)
+
+		assert.Equal(t, true, indexResult["success"])
+		assert.Equal(t, "users", indexResult["collection"])
+		assert.Equal(t, float64(1), indexResult["index_count"])
+
+		indexes, ok := indexResult["indexes"].([]interface{})
+		require.True(t, ok)
+		assert.Len(t, indexes, 1)
+		assert.Contains(t, indexes, "_id")
 	})
 
 	t.Run("Get Document by ID", func(t *testing.T) {
@@ -296,6 +317,91 @@ func TestAPI_Integration_BasicCRUD(t *testing.T) {
 		resp, err = ts.GET("/collections/users/documents/1")
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("_id Index Creation and Updates", func(t *testing.T) {
+		// Create a new collection to test _id index behavior
+		user1 := map[string]interface{}{
+			"name": "TestUser1",
+			"age":  25,
+		}
+
+		// First insert - should create collection and _id index
+		resp, err := ts.POST("/collections/id_index_test", user1)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+		// Verify _id index was created
+		indexResp, err := ts.GET("/collections/id_index_test/indexes")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, indexResp.StatusCode)
+
+		indexBody, err := ReadResponseBody(indexResp)
+		require.NoError(t, err)
+
+		var indexResult map[string]interface{}
+		err = json.Unmarshal([]byte(indexBody), &indexResult)
+		require.NoError(t, err)
+
+		assert.Equal(t, true, indexResult["success"])
+		assert.Equal(t, "id_index_test", indexResult["collection"])
+		assert.Equal(t, float64(1), indexResult["index_count"])
+
+		indexes, ok := indexResult["indexes"].([]interface{})
+		require.True(t, ok)
+		assert.Len(t, indexes, 1)
+		assert.Contains(t, indexes, "_id")
+
+		// Insert second document - should NOT recreate _id index, but should update it
+		user2 := map[string]interface{}{
+			"name": "TestUser2",
+			"age":  30,
+		}
+
+		resp, err = ts.POST("/collections/id_index_test", user2)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+		// Verify _id index still exists and count is still 1 (not recreated)
+		indexResp, err = ts.GET("/collections/id_index_test/indexes")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, indexResp.StatusCode)
+
+		indexBody, err = ReadResponseBody(indexResp)
+		require.NoError(t, err)
+
+		err = json.Unmarshal([]byte(indexBody), &indexResult)
+		require.NoError(t, err)
+
+		assert.Equal(t, true, indexResult["success"])
+		assert.Equal(t, "id_index_test", indexResult["collection"])
+		assert.Equal(t, float64(1), indexResult["index_count"]) // Still only 1 index
+
+		indexes, ok = indexResult["indexes"].([]interface{})
+		require.True(t, ok)
+		assert.Len(t, indexes, 1)
+		assert.Contains(t, indexes, "_id")
+
+		// Verify both documents can be found (index is working)
+		findResp, err := ts.GET("/collections/id_index_test/find")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, findResp.StatusCode)
+
+		findBody, err := ReadResponseBody(findResp)
+		require.NoError(t, err)
+
+		var findResult map[string]interface{}
+		err = json.Unmarshal([]byte(findBody), &findResult)
+		require.NoError(t, err)
+
+		docs := findResult["documents"].([]interface{})
+		assert.Len(t, docs, 2) // Both documents should be found
+
+		// Verify both documents have _id fields
+		for _, docInterface := range docs {
+			doc := docInterface.(map[string]interface{})
+			assert.Contains(t, doc, "_id")
+		}
 	})
 }
 

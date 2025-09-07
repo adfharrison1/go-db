@@ -87,6 +87,12 @@ func TestStorageEngine_InsertAndFind(t *testing.T) {
 	}
 	assert.True(t, names["Alice"])
 	assert.True(t, names["Bob"])
+
+	// Verify that _id index was automatically created
+	indexes, err := engine.GetIndexes("users")
+	require.NoError(t, err)
+	assert.Contains(t, indexes, "_id")
+	assert.Len(t, indexes, 1) // Only _id index should exist
 }
 
 func TestStorageEngine_GetCollection(t *testing.T) {
@@ -2099,6 +2105,170 @@ func TestStorageEngine_SaveCollectionAfterTransaction_NonExistentCollection(t *t
 	// Try to save non-existent collection - should do nothing
 	err := engine.SaveCollectionAfterTransaction("nonexistent")
 	require.NoError(t, err) // Should not error, just do nothing
+}
+
+// Tests for _id index behavior
+
+func TestStorageEngine_IdIndexCreationAndUpdates(t *testing.T) {
+	engine := NewStorageEngine()
+	defer engine.StopBackgroundWorkers()
+
+	// Test that _id index is created on first insert and updated on subsequent inserts
+	doc1 := domain.Document{"name": "User1", "age": 25}
+	doc2 := domain.Document{"name": "User2", "age": 30}
+	doc3 := domain.Document{"name": "User3", "age": 35}
+
+	// First insert - should create collection and _id index
+	_, err := engine.Insert("id_test", doc1)
+	require.NoError(t, err)
+
+	// Verify _id index was created
+	indexes, err := engine.GetIndexes("id_test")
+	require.NoError(t, err)
+	assert.Contains(t, indexes, "_id")
+	assert.Len(t, indexes, 1) // Only _id index should exist
+
+	// Get the index to verify it contains the first document
+	index, exists := engine.getIndex("id_test", "_id")
+	require.True(t, exists)
+	assert.NotNil(t, index)
+
+	// Verify the index contains the first document's ID
+	// The document should have been assigned ID "1"
+	docIDs := index.Query("1")
+	assert.Len(t, docIDs, 1)
+	assert.Equal(t, "1", docIDs[0])
+
+	// Second insert - should NOT recreate _id index, but should update it
+	_, err = engine.Insert("id_test", doc2)
+	require.NoError(t, err)
+
+	// Verify _id index still exists and count is still 1 (not recreated)
+	indexes, err = engine.GetIndexes("id_test")
+	require.NoError(t, err)
+	assert.Contains(t, indexes, "_id")
+	assert.Len(t, indexes, 1) // Still only 1 index
+
+	// Verify the index now contains both documents
+	docIDs = index.Query("1")
+	assert.Len(t, docIDs, 1)
+	assert.Equal(t, "1", docIDs[0])
+
+	docIDs = index.Query("2")
+	assert.Len(t, docIDs, 1)
+	assert.Equal(t, "2", docIDs[0])
+
+	// Third insert - should update the existing index
+	_, err = engine.Insert("id_test", doc3)
+	require.NoError(t, err)
+
+	// Verify _id index still exists and count is still 1
+	indexes, err = engine.GetIndexes("id_test")
+	require.NoError(t, err)
+	assert.Contains(t, indexes, "_id")
+	assert.Len(t, indexes, 1) // Still only 1 index
+
+	// Verify the index now contains all three documents
+	docIDs = index.Query("1")
+	assert.Len(t, docIDs, 1)
+	assert.Equal(t, "1", docIDs[0])
+
+	docIDs = index.Query("2")
+	assert.Len(t, docIDs, 1)
+	assert.Equal(t, "2", docIDs[0])
+
+	docIDs = index.Query("3")
+	assert.Len(t, docIDs, 1)
+	assert.Equal(t, "3", docIDs[0])
+
+	// Verify all documents can be found using FindAll
+	result, err := engine.FindAll("id_test", nil, nil)
+	require.NoError(t, err)
+	assert.Len(t, result.Documents, 3)
+
+	// Verify all documents have _id fields
+	for i, doc := range result.Documents {
+		assert.Contains(t, doc, "_id")
+		assert.Equal(t, fmt.Sprintf("%d", i+1), doc["_id"])
+	}
+}
+
+func TestStorageEngine_BatchInsert_IdIndexCreationAndUpdates(t *testing.T) {
+	engine := NewStorageEngine()
+	defer engine.StopBackgroundWorkers()
+
+	// Test that batch insert creates _id index and updates it properly
+	docs1 := []domain.Document{
+		{"name": "BatchUser1", "age": 25},
+		{"name": "BatchUser2", "age": 30},
+	}
+
+	docs2 := []domain.Document{
+		{"name": "BatchUser3", "age": 35},
+		{"name": "BatchUser4", "age": 40},
+	}
+
+	// First batch insert - should create collection and _id index
+	_, err := engine.BatchInsert("batch_id_test", docs1)
+	require.NoError(t, err)
+
+	// Verify _id index was created
+	indexes, err := engine.GetIndexes("batch_id_test")
+	require.NoError(t, err)
+	assert.Contains(t, indexes, "_id")
+	assert.Len(t, indexes, 1) // Only _id index should exist
+
+	// Get the index to verify it contains the first batch documents
+	index, exists := engine.getIndex("batch_id_test", "_id")
+	require.True(t, exists)
+	assert.NotNil(t, index)
+
+	// Verify the index contains the first batch document IDs
+	docIDs := index.Query("1")
+	assert.Len(t, docIDs, 1)
+	assert.Equal(t, "1", docIDs[0])
+
+	docIDs = index.Query("2")
+	assert.Len(t, docIDs, 1)
+	assert.Equal(t, "2", docIDs[0])
+
+	// Second batch insert - should NOT recreate _id index, but should update it
+	_, err = engine.BatchInsert("batch_id_test", docs2)
+	require.NoError(t, err)
+
+	// Verify _id index still exists and count is still 1 (not recreated)
+	indexes, err = engine.GetIndexes("batch_id_test")
+	require.NoError(t, err)
+	assert.Contains(t, indexes, "_id")
+	assert.Len(t, indexes, 1) // Still only 1 index
+
+	// Verify the index now contains all four documents
+	docIDs = index.Query("1")
+	assert.Len(t, docIDs, 1)
+	assert.Equal(t, "1", docIDs[0])
+
+	docIDs = index.Query("2")
+	assert.Len(t, docIDs, 1)
+	assert.Equal(t, "2", docIDs[0])
+
+	docIDs = index.Query("3")
+	assert.Len(t, docIDs, 1)
+	assert.Equal(t, "3", docIDs[0])
+
+	docIDs = index.Query("4")
+	assert.Len(t, docIDs, 1)
+	assert.Equal(t, "4", docIDs[0])
+
+	// Verify all documents can be found using FindAll
+	result, err := engine.FindAll("batch_id_test", nil, nil)
+	require.NoError(t, err)
+	assert.Len(t, result.Documents, 4)
+
+	// Verify all documents have _id fields
+	for i, doc := range result.Documents {
+		assert.Contains(t, doc, "_id")
+		assert.Equal(t, fmt.Sprintf("%d", i+1), doc["_id"])
+	}
 }
 
 // Tests for batch operations
