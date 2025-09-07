@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -921,5 +922,514 @@ func TestAPI_Integration_IndexOptimization(t *testing.T) {
 		// Verify the document
 		doc := documents[0].(map[string]interface{})
 		assert.Equal(t, "Bob", doc["name"])
+	})
+}
+
+func TestAPI_Integration_PersistenceAcrossRestart(t *testing.T) {
+	// This test simulates a full server restart cycle to ensure all operations persist correctly
+	tempDir, err := os.MkdirTemp("", "go-db-persistence-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Use a single data file for persistence (like the main application)
+	dataFile := filepath.Join(tempDir, "test-db.godb")
+
+	t.Run("Complete CRUD Operations Persistence", func(t *testing.T) {
+		// Phase 1: Create server, perform operations, shutdown
+		server1 := NewTestServer(t, storage.WithDataDir(tempDir))
+
+		// Insert initial documents
+		doc1 := map[string]interface{}{
+			"name":  "Alice",
+			"age":   30,
+			"email": "alice@example.com",
+			"city":  "New York",
+		}
+		doc2 := map[string]interface{}{
+			"name":  "Bob",
+			"age":   25,
+			"email": "bob@example.com",
+			"city":  "Boston",
+		}
+		doc3 := map[string]interface{}{
+			"name":  "Charlie",
+			"age":   35,
+			"email": "charlie@example.com",
+			"city":  "Chicago",
+		}
+
+		// Insert documents
+		resp, err := server1.POST("/collections/users", doc1)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+		resp.Body.Close()
+
+		resp, err = server1.POST("/collections/users", doc2)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+		resp.Body.Close()
+
+		resp, err = server1.POST("/collections/users", doc3)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+		resp.Body.Close()
+
+		// Create indexes
+		resp, err = server1.POST("/collections/users/indexes/age", nil)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+		resp.Body.Close()
+
+		resp, err = server1.POST("/collections/users/indexes/city", nil)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+		resp.Body.Close()
+
+		// PATCH update (partial update)
+		patchUpdate := map[string]interface{}{
+			"age":  31,
+			"city": "San Francisco",
+		}
+		resp, err = server1.PATCH("/collections/users/documents/1", patchUpdate)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+
+		// PUT update (complete replacement)
+		putUpdate := map[string]interface{}{
+			"name":  "Bob Updated",
+			"age":   26,
+			"email": "bob.updated@example.com",
+			"role":  "Senior Developer",
+		}
+		resp, err = server1.PUT("/collections/users/documents/2", putUpdate)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+
+		// Delete a document
+		resp, err = server1.DELETE("/collections/users/documents/3")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+
+		// Verify state before shutdown
+		resp, err = server1.GET("/collections/users/find")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err := ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		var result map[string]interface{}
+		err = json.Unmarshal([]byte(body), &result)
+		require.NoError(t, err)
+
+		documents := result["documents"].([]interface{})
+		assert.Len(t, documents, 2) // Only Alice and Bob should remain
+
+		// Save database to file before shutdown (like the main application)
+		err = server1.Storage.SaveToFile(dataFile)
+		require.NoError(t, err)
+
+		// Shutdown server1
+		server1.Close(t)
+
+		// Phase 2: Create new server (simulating restart), verify persistence
+		server2 := NewTestServer(t, storage.WithDataDir(tempDir))
+		defer server2.Close(t)
+
+		// Load database from file (like the main application)
+		err = server2.Storage.LoadCollectionMetadata(dataFile)
+		require.NoError(t, err)
+
+		// First, we need to trigger collection loading by accessing it
+		// The storage engine loads collections on-demand
+		resp, err = server2.GET("/collections/users/documents/1")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+
+		// Now verify documents persisted
+		resp, err = server2.GET("/collections/users/find")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err = ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		err = json.Unmarshal([]byte(body), &result)
+		require.NoError(t, err)
+
+		documents = result["documents"].([]interface{})
+		assert.Len(t, documents, 2, "Should have 2 documents after restart")
+
+		// Verify Alice's PATCH update persisted
+		aliceDoc := documents[0].(map[string]interface{})
+		if aliceDoc["_id"] == "1" {
+			assert.Equal(t, "Alice", aliceDoc["name"])
+			assert.Equal(t, float64(31), aliceDoc["age"])           // Updated from 30 to 31
+			assert.Equal(t, "San Francisco", aliceDoc["city"])      // Updated from New York
+			assert.Equal(t, "alice@example.com", aliceDoc["email"]) // Original field preserved
+		}
+
+		// Verify Bob's PUT update persisted
+		bobDoc := documents[1].(map[string]interface{})
+		if bobDoc["_id"] == "2" {
+			assert.Equal(t, "Bob Updated", bobDoc["name"])              // Completely replaced
+			assert.Equal(t, float64(26), bobDoc["age"])                 // Completely replaced
+			assert.Equal(t, "bob.updated@example.com", bobDoc["email"]) // Completely replaced
+			assert.Equal(t, "Senior Developer", bobDoc["role"])         // New field added
+			// city field should be gone (complete replacement)
+			_, hasCity := bobDoc["city"]
+			assert.False(t, hasCity, "city field should be removed in complete replacement")
+		}
+
+		// Verify Charlie was deleted
+		resp, err = server2.GET("/collections/users/documents/3")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+
+		// Verify indexes need to be recreated after restart (current limitation)
+		resp, err = server2.GET("/collections/users/indexes")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err = ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		err = json.Unmarshal([]byte(body), &result)
+		require.NoError(t, err)
+
+		indexes := result["indexes"].([]interface{})
+		// Note: Indexes are not persisted in the current implementation
+		// They need to be recreated after restart
+		assert.Len(t, indexes, 0, "Indexes are not persisted and need to be recreated after restart")
+
+		// Recreate indexes after restart
+		resp, err = server2.POST("/collections/users/indexes/age", nil)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+		resp.Body.Close()
+
+		resp, err = server2.POST("/collections/users/indexes/city", nil)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+		resp.Body.Close()
+
+		// Now verify index functionality works after recreation
+		resp, err = server2.GET("/collections/users/find?age=31")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err = ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		err = json.Unmarshal([]byte(body), &result)
+		require.NoError(t, err)
+
+		documents = result["documents"].([]interface{})
+		assert.Len(t, documents, 1, "Should find 1 document with age=31")
+		assert.Equal(t, "Alice", documents[0].(map[string]interface{})["name"])
+	})
+
+	t.Run("Batch Operations Persistence", func(t *testing.T) {
+		// Phase 1: Create server, perform batch operations, shutdown
+		server1 := NewTestServer(t, storage.WithDataDir(tempDir))
+
+		// Batch insert
+		batchDocs := []map[string]interface{}{
+			{"name": "User1", "age": 20, "department": "Engineering"},
+			{"name": "User2", "age": 25, "department": "Sales"},
+			{"name": "User3", "age": 30, "department": "Marketing"},
+		}
+
+		batchInsertReq := BatchInsertRequest{Documents: batchDocs}
+		resp, err := server1.POST("/collections/employees/batch", batchInsertReq)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+		resp.Body.Close()
+
+		// Batch update
+		batchUpdateOps := []BatchUpdateOperation{
+			{
+				ID: "1",
+				Updates: map[string]interface{}{
+					"age":    21,
+					"salary": 50000,
+				},
+			},
+			{
+				ID: "2",
+				Updates: map[string]interface{}{
+					"department": "Senior Sales",
+					"salary":     60000,
+				},
+			},
+		}
+
+		batchUpdateReq := BatchUpdateRequest{Operations: batchUpdateOps}
+		resp, err = server1.PATCH("/collections/employees/batch", batchUpdateReq)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+
+		// Save database to file before shutdown
+		err = server1.Storage.SaveToFile(dataFile)
+		require.NoError(t, err)
+
+		// Shutdown server1
+		server1.Close(t)
+
+		// Phase 2: Create new server, verify batch operations persisted
+		server2 := NewTestServer(t, storage.WithDataDir(tempDir))
+		defer server2.Close(t)
+
+		// Load database from file
+		err = server2.Storage.LoadCollectionMetadata(dataFile)
+		require.NoError(t, err)
+
+		// First, trigger collection loading by accessing a document
+		resp, err = server2.GET("/collections/employees/documents/1")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+
+		// Now verify batch insert persisted
+		resp, err = server2.GET("/collections/employees/find")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err := ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		var result map[string]interface{}
+		err = json.Unmarshal([]byte(body), &result)
+		require.NoError(t, err)
+
+		documents := result["documents"].([]interface{})
+		assert.Len(t, documents, 3, "Should have 3 documents from batch insert")
+
+		// Verify batch updates persisted
+		for _, docInterface := range documents {
+			doc := docInterface.(map[string]interface{})
+			if doc["_id"] == "1" {
+				assert.Equal(t, "User1", doc["name"])
+				assert.Equal(t, float64(21), doc["age"])          // Updated from 20 to 21
+				assert.Equal(t, float64(50000), doc["salary"])    // Added
+				assert.Equal(t, "Engineering", doc["department"]) // Original preserved
+			} else if doc["_id"] == "2" {
+				assert.Equal(t, "User2", doc["name"])
+				assert.Equal(t, float64(25), doc["age"])           // Original preserved
+				assert.Equal(t, float64(60000), doc["salary"])     // Added
+				assert.Equal(t, "Senior Sales", doc["department"]) // Updated from Sales
+			} else if doc["_id"] == "3" {
+				assert.Equal(t, "User3", doc["name"])
+				assert.Equal(t, float64(30), doc["age"])        // Original preserved
+				assert.Equal(t, "Marketing", doc["department"]) // Original preserved
+				_, hasSalary := doc["salary"]
+				assert.False(t, hasSalary, "User3 should not have salary field")
+			}
+		}
+	})
+
+	t.Run("Edge Cases Persistence", func(t *testing.T) {
+		// Phase 1: Create server, test edge cases, shutdown
+		server1 := NewTestServer(t, storage.WithDataDir(tempDir))
+
+		// Test empty document
+		emptyDoc := map[string]interface{}{}
+		resp, err := server1.POST("/collections/empty_test", emptyDoc)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+		resp.Body.Close()
+
+		// Test document with special characters and large data
+		largeDoc := map[string]interface{}{
+			"name":        "Test User with Special Characters: !@#$%^&*()",
+			"description": strings.Repeat("This is a very long description. ", 100),
+			"nested": map[string]interface{}{
+				"level1": map[string]interface{}{
+					"level2": map[string]interface{}{
+						"value": "deeply nested",
+					},
+				},
+			},
+			"array": []interface{}{1, 2, 3, "string", true, nil},
+		}
+		resp, err = server1.POST("/collections/edge_cases", largeDoc)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+		resp.Body.Close()
+
+		// Test updating to empty document (PUT)
+		emptyUpdate := map[string]interface{}{}
+		resp, err = server1.PUT("/collections/edge_cases/documents/1", emptyUpdate)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+
+		// Save database to file before shutdown
+		err = server1.Storage.SaveToFile(dataFile)
+		require.NoError(t, err)
+
+		// Shutdown server1
+		server1.Close(t)
+
+		// Phase 2: Create new server, verify edge cases persisted
+		server2 := NewTestServer(t, storage.WithDataDir(tempDir))
+		defer server2.Close(t)
+
+		// Load database from file
+		err = server2.Storage.LoadCollectionMetadata(dataFile)
+		require.NoError(t, err)
+
+		// First, trigger collection loading by accessing a document
+		resp, err = server2.GET("/collections/empty_test/documents/1")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err := ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		var result map[string]interface{}
+		err = json.Unmarshal([]byte(body), &result)
+		require.NoError(t, err)
+
+		assert.Equal(t, "1", result["_id"])
+		// Should only have _id field
+
+		// Verify empty update persisted (document should only have _id)
+		resp, err = server2.GET("/collections/edge_cases/documents/1")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err = ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		err = json.Unmarshal([]byte(body), &result)
+		require.NoError(t, err)
+
+		assert.Equal(t, "1", result["_id"])
+		// Should only have _id field after empty PUT update
+		assert.Len(t, result, 1, "Document should only have _id field after empty PUT update")
+	})
+
+	t.Run("Multiple Collections Persistence", func(t *testing.T) {
+		// Phase 1: Create server, work with multiple collections, shutdown
+		server1 := NewTestServer(t, storage.WithDataDir(tempDir))
+
+		// Create data in multiple collections
+		users := []map[string]interface{}{
+			{"name": "User1", "role": "admin"},
+			{"name": "User2", "role": "user"},
+		}
+
+		products := []map[string]interface{}{
+			{"name": "Product1", "price": 100},
+			{"name": "Product2", "price": 200},
+		}
+
+		orders := []map[string]interface{}{
+			{"user_id": "1", "product_id": "1", "quantity": 2},
+			{"user_id": "2", "product_id": "2", "quantity": 1},
+		}
+
+		// Insert into users collection
+		for _, user := range users {
+			resp, err := server1.POST("/collections/users_multi", user)
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusCreated, resp.StatusCode)
+			resp.Body.Close()
+		}
+
+		// Insert into products collection
+		for _, product := range products {
+			resp, err := server1.POST("/collections/products_multi", product)
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusCreated, resp.StatusCode)
+			resp.Body.Close()
+		}
+
+		// Insert into orders collection
+		for _, order := range orders {
+			resp, err := server1.POST("/collections/orders_multi", order)
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusCreated, resp.StatusCode)
+			resp.Body.Close()
+		}
+
+		// Save database to file before shutdown
+		err = server1.Storage.SaveToFile(dataFile)
+		require.NoError(t, err)
+
+		// Shutdown server1
+		server1.Close(t)
+
+		// Phase 2: Create new server, verify all collections persisted
+		server2 := NewTestServer(t, storage.WithDataDir(tempDir))
+		defer server2.Close(t)
+
+		// Load database from file
+		err = server2.Storage.LoadCollectionMetadata(dataFile)
+		require.NoError(t, err)
+
+		// First, trigger collection loading by accessing documents
+		resp, err := server2.GET("/collections/users_multi/documents/1")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+
+		resp, err = server2.GET("/collections/products_multi/documents/1")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+
+		resp, err = server2.GET("/collections/orders_multi/documents/1")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+
+		// Now verify users collection
+		resp, err = server2.GET("/collections/users_multi/find")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err := ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		var result map[string]interface{}
+		err = json.Unmarshal([]byte(body), &result)
+		require.NoError(t, err)
+
+		documents := result["documents"].([]interface{})
+		assert.Len(t, documents, 2, "Should have 2 users")
+
+		// Verify products collection
+		resp, err = server2.GET("/collections/products_multi/find")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err = ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		err = json.Unmarshal([]byte(body), &result)
+		require.NoError(t, err)
+
+		documents = result["documents"].([]interface{})
+		assert.Len(t, documents, 2, "Should have 2 products")
+
+		// Verify orders collection
+		resp, err = server2.GET("/collections/orders_multi/find")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err = ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		err = json.Unmarshal([]byte(body), &result)
+		require.NoError(t, err)
+
+		documents = result["documents"].([]interface{})
+		assert.Len(t, documents, 2, "Should have 2 orders")
 	})
 }
