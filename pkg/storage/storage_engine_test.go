@@ -2271,6 +2271,359 @@ func TestStorageEngine_BatchInsert_IdIndexCreationAndUpdates(t *testing.T) {
 	}
 }
 
+// Tests for index updates during document modifications
+
+func TestStorageEngine_IndexUpdates(t *testing.T) {
+	engine := NewStorageEngine()
+	defer engine.StopBackgroundWorkers()
+
+	// Insert test documents
+	doc1 := domain.Document{"name": "Alice", "age": 25, "city": "New York"}
+	doc2 := domain.Document{"name": "Bob", "age": 30, "city": "Boston"}
+	doc3 := domain.Document{"name": "Charlie", "age": 25, "city": "Chicago"}
+
+	_, err := engine.Insert("index_updates", doc1)
+	require.NoError(t, err)
+	_, err = engine.Insert("index_updates", doc2)
+	require.NoError(t, err)
+	_, err = engine.Insert("index_updates", doc3)
+	require.NoError(t, err)
+
+	// Create indexes on age and city fields
+	err = engine.CreateIndex("index_updates", "age")
+	require.NoError(t, err)
+	err = engine.CreateIndex("index_updates", "city")
+	require.NoError(t, err)
+
+	// Get the indexes for direct testing
+	ageIndex, exists := engine.getIndex("index_updates", "age")
+	require.True(t, exists)
+	cityIndex, exists := engine.getIndex("index_updates", "city")
+	require.True(t, exists)
+
+	t.Run("UpdateById - Change Indexed Property", func(t *testing.T) {
+		// Update Alice's age from 25 to 26
+		updates := domain.Document{"age": 26}
+		_, err := engine.UpdateById("index_updates", "1", updates)
+		require.NoError(t, err)
+
+		// Verify age index was updated
+		docIDs := ageIndex.Query(25)
+		assert.Len(t, docIDs, 1) // Only Charlie should have age=25
+		assert.Equal(t, "3", docIDs[0])
+
+		docIDs = ageIndex.Query(26)
+		assert.Len(t, docIDs, 1) // Only Alice should have age=26
+		assert.Equal(t, "1", docIDs[0])
+
+		// Verify city index was not affected
+		docIDs = cityIndex.Query("New York")
+		assert.Len(t, docIDs, 1)
+		assert.Equal(t, "1", docIDs[0])
+	})
+
+	t.Run("UpdateById - Remove Indexed Property", func(t *testing.T) {
+		// Update Bob to remove city property
+		updates := domain.Document{"city": nil}
+		_, err := engine.UpdateById("index_updates", "2", updates)
+		require.NoError(t, err)
+
+		// Verify city index was updated - Bob should be removed from Boston
+		docIDs := cityIndex.Query("Boston")
+		assert.Len(t, docIDs, 0) // No documents should have city=Boston
+
+		// Verify age index was not affected
+		docIDs = ageIndex.Query(30)
+		assert.Len(t, docIDs, 1)
+		assert.Equal(t, "2", docIDs[0])
+	})
+
+	t.Run("ReplaceById - Complete Replacement", func(t *testing.T) {
+		// Replace Charlie's document completely
+		newDoc := domain.Document{
+			"name": "Charlie Updated",
+			"age":  35,        // Changed from 25 to 35
+			"city": "Seattle", // Changed from Chicago to Seattle
+		}
+		_, err := engine.ReplaceById("index_updates", "3", newDoc)
+		require.NoError(t, err)
+
+		// Verify age index was updated
+		docIDs := ageIndex.Query(25)
+		assert.Len(t, docIDs, 0) // No documents should have age=25 now
+
+		docIDs = ageIndex.Query(35)
+		assert.Len(t, docIDs, 1) // Only Charlie should have age=35
+		assert.Equal(t, "3", docIDs[0])
+
+		// Verify city index was updated
+		docIDs = cityIndex.Query("Chicago")
+		assert.Len(t, docIDs, 0) // No documents should have city=Chicago now
+
+		docIDs = cityIndex.Query("Seattle")
+		assert.Len(t, docIDs, 1) // Only Charlie should have city=Seattle
+		assert.Equal(t, "3", docIDs[0])
+	})
+
+	t.Run("DeleteById - Remove from Indexes", func(t *testing.T) {
+		// Delete Alice's document
+		err := engine.DeleteById("index_updates", "1")
+		require.NoError(t, err)
+
+		// Verify age index was updated - Alice should be removed
+		docIDs := ageIndex.Query(26)
+		assert.Len(t, docIDs, 0) // No documents should have age=26 now
+
+		// Verify city index was updated - Alice should be removed
+		docIDs = cityIndex.Query("New York")
+		assert.Len(t, docIDs, 0) // No documents should have city=New York now
+
+		// Verify other documents are still indexed correctly
+		docIDs = ageIndex.Query(30)
+		assert.Len(t, docIDs, 1) // Bob should still have age=30
+		assert.Equal(t, "2", docIDs[0])
+
+		docIDs = ageIndex.Query(35)
+		assert.Len(t, docIDs, 1) // Charlie should still have age=35
+		assert.Equal(t, "3", docIDs[0])
+	})
+}
+
+func TestStorageEngine_BatchUpdate_IndexUpdates(t *testing.T) {
+	engine := NewStorageEngine()
+	defer engine.StopBackgroundWorkers()
+
+	// Insert test documents
+	docs := []domain.Document{
+		{"name": "User1", "age": 25, "city": "New York"},
+		{"name": "User2", "age": 30, "city": "Boston"},
+		{"name": "User3", "age": 35, "city": "Chicago"},
+	}
+
+	_, err := engine.BatchInsert("batch_index_updates", docs)
+	require.NoError(t, err)
+
+	// Create indexes on age and city fields
+	err = engine.CreateIndex("batch_index_updates", "age")
+	require.NoError(t, err)
+	err = engine.CreateIndex("batch_index_updates", "city")
+	require.NoError(t, err)
+
+	// Get the indexes for direct testing
+	ageIndex, exists := engine.getIndex("batch_index_updates", "age")
+	require.True(t, exists)
+	cityIndex, exists := engine.getIndex("batch_index_updates", "city")
+	require.True(t, exists)
+
+	// Batch update to change indexed properties
+	updateOps := []domain.BatchUpdateOperation{
+		{
+			ID:      "1",
+			Updates: domain.Document{"age": 26}, // Change age from 25 to 26
+		},
+		{
+			ID:      "2",
+			Updates: domain.Document{"city": "Seattle"}, // Change city from Boston to Seattle
+		},
+		{
+			ID: "3",
+			Updates: domain.Document{
+				"age":  40,         // Change age from 35 to 40
+				"city": "Portland", // Change city from Chicago to Portland
+			},
+		},
+	}
+
+	_, err = engine.BatchUpdate("batch_index_updates", updateOps)
+	require.NoError(t, err)
+
+	// Verify age index was updated correctly
+	docIDs := ageIndex.Query(25)
+	assert.Len(t, docIDs, 0) // No documents should have age=25 now
+
+	docIDs = ageIndex.Query(26)
+	assert.Len(t, docIDs, 1) // Only User1 should have age=26
+	assert.Equal(t, "1", docIDs[0])
+
+	docIDs = ageIndex.Query(30)
+	assert.Len(t, docIDs, 1) // User2 should still have age=30
+	assert.Equal(t, "2", docIDs[0])
+
+	docIDs = ageIndex.Query(40)
+	assert.Len(t, docIDs, 1) // Only User3 should have age=40
+	assert.Equal(t, "3", docIDs[0])
+
+	// Verify city index was updated correctly
+	docIDs = cityIndex.Query("New York")
+	assert.Len(t, docIDs, 1) // User1 should still have city=New York
+	assert.Equal(t, "1", docIDs[0])
+
+	docIDs = cityIndex.Query("Boston")
+	assert.Len(t, docIDs, 0) // No documents should have city=Boston now
+
+	docIDs = cityIndex.Query("Seattle")
+	assert.Len(t, docIDs, 1) // Only User2 should have city=Seattle
+	assert.Equal(t, "2", docIDs[0])
+
+	docIDs = cityIndex.Query("Chicago")
+	assert.Len(t, docIDs, 0) // No documents should have city=Chicago now
+
+	docIDs = cityIndex.Query("Portland")
+	assert.Len(t, docIDs, 1) // Only User3 should have city=Portland
+	assert.Equal(t, "3", docIDs[0])
+}
+
+func TestStorageEngine_IndexUpdates_EdgeCases(t *testing.T) {
+	engine := NewStorageEngine()
+	defer engine.StopBackgroundWorkers()
+
+	// Insert test documents
+	doc1 := domain.Document{"name": "Alice", "age": 25, "city": "New York"}
+	doc2 := domain.Document{"name": "Bob", "age": 30, "city": "Boston"}
+
+	_, err := engine.Insert("edge_cases", doc1)
+	require.NoError(t, err)
+	_, err = engine.Insert("edge_cases", doc2)
+	require.NoError(t, err)
+
+	// Create indexes on age and city fields
+	err = engine.CreateIndex("edge_cases", "age")
+	require.NoError(t, err)
+	err = engine.CreateIndex("edge_cases", "city")
+	require.NoError(t, err)
+
+	// Get the indexes for direct testing
+	ageIndex, exists := engine.getIndex("edge_cases", "age")
+	require.True(t, exists)
+	cityIndex, exists := engine.getIndex("edge_cases", "city")
+	require.True(t, exists)
+
+	t.Run("Update to Same Value - No Index Change", func(t *testing.T) {
+		// Update Alice's age to the same value (25)
+		updates := domain.Document{"age": 25}
+		_, err := engine.UpdateById("edge_cases", "1", updates)
+		require.NoError(t, err)
+
+		// Verify age index still has Alice with age=25
+		docIDs := ageIndex.Query(25)
+		assert.Len(t, docIDs, 1) // Only Alice should have age=25
+		assert.Equal(t, "1", docIDs[0])
+	})
+
+	t.Run("Add New Indexed Field", func(t *testing.T) {
+		// Add a new field that has an index
+		err = engine.CreateIndex("edge_cases", "salary")
+		require.NoError(t, err)
+
+		// Update Alice to add salary field
+		updates := domain.Document{"salary": 50000}
+		_, err := engine.UpdateById("edge_cases", "1", updates)
+		require.NoError(t, err)
+
+		// Get the salary index
+		salaryIndex, exists := engine.getIndex("edge_cases", "salary")
+		require.True(t, exists)
+
+		// Verify Alice is now in the salary index
+		docIDs := salaryIndex.Query(50000)
+		assert.Len(t, docIDs, 1)
+		assert.Equal(t, "1", docIDs[0])
+	})
+
+	t.Run("Update Non-Indexed Field - Index Unchanged", func(t *testing.T) {
+		// Update Alice's name (not indexed)
+		updates := domain.Document{"name": "Alice Updated"}
+		_, err := engine.UpdateById("edge_cases", "1", updates)
+		require.NoError(t, err)
+
+		// Verify age index is unchanged
+		docIDs := ageIndex.Query(25)
+		assert.Len(t, docIDs, 1) // Should still have Alice with age=25
+		assert.Equal(t, "1", docIDs[0])
+
+		// Verify city index is unchanged
+		docIDs = cityIndex.Query("New York")
+		assert.Len(t, docIDs, 1)
+		assert.Equal(t, "1", docIDs[0])
+	})
+
+	t.Run("Multiple Field Updates - All Indexes Updated", func(t *testing.T) {
+		// Update Bob with multiple indexed fields
+		updates := domain.Document{
+			"age":    35,        // Change from 30 to 35
+			"city":   "Seattle", // Change from Boston to Seattle
+			"salary": 60000,     // Add new indexed field
+		}
+		_, err := engine.UpdateById("edge_cases", "2", updates)
+		require.NoError(t, err)
+
+		// Get the salary index
+		salaryIndex, exists := engine.getIndex("edge_cases", "salary")
+		require.True(t, exists)
+
+		// Verify age index was updated
+		docIDs := ageIndex.Query(30)
+		assert.Len(t, docIDs, 0) // No documents should have age=30 now
+
+		docIDs = ageIndex.Query(35)
+		assert.Len(t, docIDs, 1) // Only Bob should have age=35
+		assert.Equal(t, "2", docIDs[0])
+
+		// Verify city index was updated
+		docIDs = cityIndex.Query("Boston")
+		assert.Len(t, docIDs, 0) // No documents should have city=Boston now
+
+		docIDs = cityIndex.Query("Seattle")
+		assert.Len(t, docIDs, 1) // Only Bob should have city=Seattle
+		assert.Equal(t, "2", docIDs[0])
+
+		// Verify salary index was updated
+		docIDs = salaryIndex.Query(60000)
+		assert.Len(t, docIDs, 1) // Only Bob should have salary=60000
+		assert.Equal(t, "2", docIDs[0])
+	})
+
+	t.Run("Replace Document - All Indexes Updated", func(t *testing.T) {
+		// Replace Alice's document completely with different indexed values
+		newDoc := domain.Document{
+			"name":   "Alice Completely New",
+			"age":    40,         // Different from 25
+			"city":   "Portland", // Different from New York
+			"salary": 70000,      // Different from 50000
+		}
+		_, err := engine.ReplaceById("edge_cases", "1", newDoc)
+		require.NoError(t, err)
+
+		// Get the salary index
+		salaryIndex, exists := engine.getIndex("edge_cases", "salary")
+		require.True(t, exists)
+
+		// Verify age index was updated
+		docIDs := ageIndex.Query(25)
+		assert.Len(t, docIDs, 0) // No documents should have age=25 now
+
+		docIDs = ageIndex.Query(40)
+		assert.Len(t, docIDs, 1) // Only Alice should have age=40
+		assert.Equal(t, "1", docIDs[0])
+
+		// Verify city index was updated
+		docIDs = cityIndex.Query("New York")
+		assert.Len(t, docIDs, 0) // No documents should have city=New York now
+
+		docIDs = cityIndex.Query("Portland")
+		assert.Len(t, docIDs, 1) // Only Alice should have city=Portland
+		assert.Equal(t, "1", docIDs[0])
+
+		// Verify salary index was updated
+		docIDs = salaryIndex.Query(50000)
+		assert.Len(t, docIDs, 0) // No documents should have salary=50000 now
+
+		docIDs = salaryIndex.Query(70000)
+		assert.Len(t, docIDs, 1) // Only Alice should have salary=70000
+		assert.Equal(t, "1", docIDs[0])
+	})
+}
+
 // Tests for batch operations
 
 func TestStorageEngine_BatchInsert(t *testing.T) {
