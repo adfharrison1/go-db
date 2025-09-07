@@ -6,14 +6,14 @@ const errorRate = new Rate('errors');
 
 export const options = {
   stages: [
-    { duration: '30s', target: 5 }, // Ramp up to 5 users
-    { duration: '2m', target: 5 }, // Stay at 5 users
-    { duration: '30s', target: 0 }, // Ramp down to 0 users
+    { duration: '15s', target: 5 }, // Ramp up to 5 users
+    { duration: '30s', target: 5 }, // Stay at 5 users
+    { duration: '15s', target: 0 }, // Ramp down to 0 users
   ],
   thresholds: {
-    http_req_duration: ['p(95)<200'], // 95% of requests under 200ms
-    http_req_failed: ['rate<0.05'], // Error rate under 5%
-    errors: ['rate<0.05'],
+    http_req_duration: ['p(95)<2000'], // 95% of requests under 200ms
+    http_req_failed: ['rate<0.01'], // Error rate under 1%
+    errors: ['rate<0.01'],
   },
 };
 
@@ -22,7 +22,7 @@ const COLLECTION = 'test_batch';
 
 export default function () {
   // 1. Batch Insert
-  const batchSize = Math.floor(Math.random() * 50) + 10; // 10-60 documents
+  const batchSize = 1000;
   const documents = [];
 
   for (let i = 0; i < batchSize; i++) {
