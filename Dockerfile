@@ -6,10 +6,13 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN go build -o /go-db ./cmd/go-db
+RUN go build -o /go-db ./cmd/go-db.go
 
 # Final stage
 FROM alpine:3.18
-COPY --from=builder /go-db /go-db
+RUN apk --no-cache add ca-certificates
+WORKDIR /app
+COPY --from=builder /go-db /app/go-db
+RUN chmod +x /app/go-db
 EXPOSE 8080
-ENTRYPOINT ["/go-db"]
+ENTRYPOINT ["/app/go-db"]

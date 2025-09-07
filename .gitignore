@@ -1,3 +1,4 @@
 bin
 go-db_data.godb
 collections/
+go-db

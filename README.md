@@ -562,10 +562,22 @@ The database follows a clean architecture with separated concerns:
 
 ## Docker
 
+### Quick Start
+
 ```bash
-docker build -t go-db .
-docker run -p 8080:8080 -v $(pwd)/data:/app/data go-db
+# Start go-db with Docker Compose
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop the service
+docker-compose down
 ```
+
+### Data Persistence
+
+Data is automatically persisted in a Docker volume (`go-db-data`) and will survive container restarts.
 
 ## Advanced Features
 
