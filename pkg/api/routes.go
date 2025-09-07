@@ -6,6 +6,9 @@ import (
 
 // RegisterRoutes registers all API routes with the given router
 func (h *Handler) RegisterRoutes(router *mux.Router) {
+	// Health check endpoint
+	router.HandleFunc("/health", h.HandleHealth).Methods("GET")
+
 	// Collection operations
 	router.HandleFunc("/collections/{coll}", h.HandleInsert).Methods("POST")
 
