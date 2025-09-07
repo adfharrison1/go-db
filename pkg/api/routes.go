@@ -24,6 +24,7 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/collections/{coll}/find_with_stream", h.HandleFindAllWithStream).Methods("GET")
 
 	// Index operations
+	router.HandleFunc("/collections/{coll}/indexes", h.HandleGetIndexes).Methods("GET")
 	router.HandleFunc("/collections/{coll}/indexes/{field}", h.HandleCreateIndex).Methods("POST")
 
 	// Add more routes as needed

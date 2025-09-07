@@ -203,6 +203,8 @@ GET /collections/{collection}/find?age=30&city=New%20York
 
 **Response**: `200 OK` with JSON array of documents
 
+**Index Optimization**: The find endpoints automatically use indexes when available for faster queries. If you create an index on a field (e.g., `age`), queries filtering by that field will use the index for optimal performance. Multiple indexes are combined using AND logic for compound queries.
+
 #### Find Documents with Pagination
 
 The database supports both **offset/limit** and **cursor-based** pagination for efficient data retrieval:
@@ -244,6 +246,8 @@ GET /collections/{collection}/find_with_stream?age=30
 ```
 
 **Response**: `200 OK` with chunked JSON array (memory efficient for large datasets)
+
+**Index Optimization**: Like the regular find endpoint, streaming also uses indexes when available for optimal performance.
 
 **⚠️ Important**: This endpoint does NOT apply pagination - it streams ALL matching documents. Use with caution for large datasets. For paginated queries, use the `/collections/{collection}/find` endpoint instead.
 
@@ -418,6 +422,25 @@ POST /collections/{collection}/indexes/{field}
 - `400 Bad Request`: Field name is required or trying to index `_id` field
 - `500 Internal Server Error`: Index creation failed
 
+#### Get Indexes
+
+```http
+GET /collections/{collection}/indexes
+```
+
+**Response**: `200 OK`
+
+```json
+{
+  "success": true,
+  "collection": "users",
+  "indexes": ["_id", "email", "age"],
+  "index_count": 3
+}
+```
+
+**Note**: The `_id` field is automatically indexed and will always appear in the indexes list for existing collections.
+
 ## Usage Examples
 
 ### Basic CRUD Operations
@@ -465,6 +488,9 @@ curl -X POST http://localhost:8080/collections/users/indexes/email
 
 # Create index on age field
 curl -X POST http://localhost:8080/collections/users/indexes/age
+
+# Get all indexes for a collection
+curl http://localhost:8080/collections/users/indexes
 
 # Note: _id field is automatically indexed and cannot be manually indexed
 ```

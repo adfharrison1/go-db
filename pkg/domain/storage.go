@@ -27,6 +27,7 @@ type StorageEngine interface {
 	StopBackgroundWorkers()
 	SaveCollectionAfterTransaction(collName string) error
 	IsTransactionSaveEnabled() bool
+	GetIndexes(collName string) ([]string, error)
 }
 
 // DatabaseEngine combines StorageEngine and IndexEngine interfaces

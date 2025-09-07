@@ -582,6 +582,53 @@ func TestAPI_Integration_IndexOperations(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	})
+
+	t.Run("Get Indexes", func(t *testing.T) {
+		// Get indexes for collection (should have _id index from previous inserts)
+		resp, err := ts.GET("/collections/employees/indexes")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err := ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		var result map[string]interface{}
+		err = json.Unmarshal([]byte(body), &result)
+		require.NoError(t, err)
+
+		assert.Equal(t, true, result["success"])
+		assert.Equal(t, "employees", result["collection"])
+		// Should have at least _id index, possibly more from previous tests
+		indexCount := result["index_count"].(float64)
+		assert.GreaterOrEqual(t, indexCount, float64(1))
+
+		indexes, ok := result["indexes"].([]interface{})
+		require.True(t, ok)
+		assert.GreaterOrEqual(t, len(indexes), 1)
+		assert.Contains(t, indexes, "_id")
+	})
+
+	t.Run("Get Indexes - Non-Existent Collection", func(t *testing.T) {
+		// Get indexes for non-existent collection
+		resp, err := ts.GET("/collections/nonexistent/indexes")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err := ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		var result map[string]interface{}
+		err = json.Unmarshal([]byte(body), &result)
+		require.NoError(t, err)
+
+		assert.Equal(t, true, result["success"])
+		assert.Equal(t, "nonexistent", result["collection"])
+		assert.Equal(t, float64(0), result["index_count"])
+
+		indexes, ok := result["indexes"].([]interface{})
+		require.True(t, ok)
+		assert.Len(t, indexes, 0)
+	})
 }
 
 func TestAPI_Integration_Pagination(t *testing.T) {
@@ -621,5 +668,152 @@ func TestAPI_Integration_Pagination(t *testing.T) {
 		assert.Equal(t, true, result["has_next"])
 		assert.Equal(t, false, result["has_prev"])
 		assert.NotEmpty(t, result["next_cursor"])
+	})
+}
+
+func TestAPI_Integration_IndexOptimization(t *testing.T) {
+	ts := NewTestServer(t)
+	defer ts.Close(t)
+
+	// Insert test documents with different ages and cities
+	docs := []map[string]interface{}{
+		{"name": "Alice", "age": 25, "city": "New York"},
+		{"name": "Bob", "age": 30, "city": "Boston"},
+		{"name": "Charlie", "age": 25, "city": "Chicago"},
+		{"name": "Diana", "age": 35, "city": "New York"},
+		{"name": "Eve", "age": 25, "city": "Boston"},
+	}
+
+	for _, doc := range docs {
+		resp, err := ts.POST("/collections/indexed_users", doc)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+		resp.Body.Close()
+	}
+
+	// Create index on age field
+	resp, err := ts.POST("/collections/indexed_users/indexes/age", nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Create index on city field
+	resp, err = ts.POST("/collections/indexed_users/indexes/city", nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	t.Run("Find with Single Index", func(t *testing.T) {
+		// Query by age=25 - should use index
+		resp, err := ts.GET("/collections/indexed_users/find?age=25")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err := ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		var result map[string]interface{}
+		err = json.Unmarshal([]byte(body), &result)
+		require.NoError(t, err)
+
+		documents, ok := result["documents"].([]interface{})
+		require.True(t, ok)
+		assert.Len(t, documents, 3) // Alice, Charlie, Eve
+
+		// Verify the documents have age=25
+		for _, docInterface := range documents {
+			doc := docInterface.(map[string]interface{})
+			assert.Equal(t, float64(25), doc["age"])
+		}
+	})
+
+	t.Run("Find with Multiple Indexes", func(t *testing.T) {
+		// Query by age=25 AND city=Boston - should use both indexes
+		resp, err := ts.GET("/collections/indexed_users/find?age=25&city=Boston")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err := ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		var result map[string]interface{}
+		err = json.Unmarshal([]byte(body), &result)
+		require.NoError(t, err)
+
+		documents, ok := result["documents"].([]interface{})
+		require.True(t, ok)
+		assert.Len(t, documents, 1) // Only Eve (Alice has city=New York)
+
+		// Verify the document has both age=25 and city=Boston
+		doc := documents[0].(map[string]interface{})
+		assert.Equal(t, float64(25), doc["age"])
+		assert.Equal(t, "Boston", doc["city"])
+	})
+
+	t.Run("Find with Index and Non-Indexed Field", func(t *testing.T) {
+		// Query by age=25 AND name=Alice - should use index for age, filter by name
+		resp, err := ts.GET("/collections/indexed_users/find?age=25&name=Alice")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err := ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		var result map[string]interface{}
+		err = json.Unmarshal([]byte(body), &result)
+		require.NoError(t, err)
+
+		documents, ok := result["documents"].([]interface{})
+		require.True(t, ok)
+		assert.Len(t, documents, 1) // Only Alice
+
+		// Verify the document
+		doc := documents[0].(map[string]interface{})
+		assert.Equal(t, "Alice", doc["name"])
+		assert.Equal(t, float64(25), doc["age"])
+	})
+
+	t.Run("Stream with Index Optimization", func(t *testing.T) {
+		// Test streaming with index optimization
+		resp, err := ts.GET("/collections/indexed_users/find_with_stream?age=25")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err := ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		// Parse the JSON array response
+		var documents []map[string]interface{}
+		err = json.Unmarshal([]byte(body), &documents)
+		require.NoError(t, err)
+
+		assert.Len(t, documents, 3) // Alice, Charlie, Eve
+
+		// Verify all documents have age=25
+		for _, doc := range documents {
+			assert.Equal(t, float64(25), doc["age"])
+		}
+	})
+
+	t.Run("Find without Index (Fallback)", func(t *testing.T) {
+		// Query by name=Bob - no index on name, should fall back to full scan
+		resp, err := ts.GET("/collections/indexed_users/find?name=Bob")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		body, err := ReadResponseBody(resp)
+		require.NoError(t, err)
+
+		var result map[string]interface{}
+		err = json.Unmarshal([]byte(body), &result)
+		require.NoError(t, err)
+
+		documents, ok := result["documents"].([]interface{})
+		require.True(t, ok)
+		assert.Len(t, documents, 1) // Only Bob
+
+		// Verify the document
+		doc := documents[0].(map[string]interface{})
+		assert.Equal(t, "Bob", doc["name"])
 	})
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
 )
@@ -36,7 +37,17 @@ func (h *Handler) HandleFindAllWithStream(w http.ResponseWriter, r *http.Request
 		}
 
 		if len(values) > 0 {
-			filter[key] = values[0] // Take the first value for each key
+			value := values[0] // Take first value if multiple provided
+
+			// Try to convert to number if possible
+			if num, err := strconv.ParseFloat(value, 64); err == nil {
+				filter[key] = num
+			} else if num, err := strconv.ParseInt(value, 10, 64); err == nil {
+				filter[key] = num
+			} else {
+				// Treat as string
+				filter[key] = value
+			}
 		}
 	}
 

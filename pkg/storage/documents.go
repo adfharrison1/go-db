@@ -26,6 +26,9 @@ func (se *StorageEngine) Insert(collName string, doc domain.Document) (domain.Do
 		}
 		se.collections[collName] = collectionInfo
 		se.cache.Put(collName, collection, collectionInfo)
+
+		// Initialize indexes for this collection using the index engine
+		se.indexEngine.CreateIndex(collName, "_id")
 	}
 
 	// Generate unique ID using per-collection atomic counter (thread-safe)
@@ -494,6 +497,9 @@ func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) ([
 		}
 		se.collections[collName] = collectionInfo
 		se.cache.Put(collName, collection, collectionInfo)
+
+		// Initialize indexes for this collection using the index engine
+		se.indexEngine.CreateIndex(collName, "_id")
 		collectionCreated = true
 	}
 
