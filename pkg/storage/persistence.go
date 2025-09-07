@@ -26,6 +26,9 @@ func (se *StorageEngine) SaveToFile(filename string) error {
 			storageData.Collections[collName][docID] = map[string]interface{}(doc)
 		}
 	}
+
+	// Export indexes for persistence
+	storageData.Indexes = se.indexEngine.ExportIndexes()
 	msgpackData, err := msgpack.Marshal(storageData)
 	if err != nil {
 		return fmt.Errorf("failed to encode MessagePack: %w", err)
@@ -53,6 +56,8 @@ func (se *StorageEngine) SaveToFile(filename string) error {
 
 // LoadCollectionMetadata loads only collection metadata from disk
 func (se *StorageEngine) LoadCollectionMetadata(filename string) error {
+	// Store the filename for later use in collection loading
+	se.dataFile = filename
 	file, err := os.Open(filename)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -89,7 +94,63 @@ func (se *StorageEngine) LoadCollectionMetadata(filename string) error {
 			LastModified:  time.Now(),
 		}
 	}
+
+	// Import indexes if they exist
+	if len(storageData.Indexes) > 0 {
+		se.indexEngine.ImportIndexes(storageData.Indexes)
+	}
+
 	return nil
+}
+
+// loadCollectionFromSingleFile loads a collection from the single file format
+func (se *StorageEngine) loadCollectionFromSingleFile(collName, filename string) (*domain.Collection, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	_, err = ReadHeader(file)
+	if err != nil {
+		return nil, err
+	}
+
+	compressedData, err := io.ReadAll(file)
+	if err != nil {
+		return nil, err
+	}
+
+	decompressedData := make([]byte, len(compressedData)*10)
+	n, err := lz4.UncompressBlock(compressedData, decompressedData)
+	if err != nil {
+		return nil, err
+	}
+	decompressedData = decompressedData[:n]
+
+	var storageData StorageData
+	if err := msgpack.Unmarshal(decompressedData, &storageData); err != nil {
+		return nil, err
+	}
+
+	docs, exists := storageData.Collections[collName]
+	if !exists {
+		return nil, fmt.Errorf("collection %s not found in file", collName)
+	}
+
+	collection := domain.NewCollection(collName)
+	for docID, docData := range docs {
+		doc := domain.Document{}
+		for key, value := range docData.(map[string]interface{}) {
+			doc[key] = value
+		}
+		collection.Documents[docID] = doc
+	}
+
+	// Rebuild indexes for this collection after loading
+	se.indexEngine.RebuildIndexForCollection(collName, collection)
+
+	return collection, nil
 }
 
 // loadCollectionFromDisk loads a single collection from disk

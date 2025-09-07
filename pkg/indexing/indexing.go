@@ -201,3 +201,77 @@ func (ie *IndexEngine) UpdateIndexForDocument(collectionName, docID string, oldD
 		}
 	}
 }
+
+// ExportIndexes exports all indexes in a format suitable for persistence
+func (ie *IndexEngine) ExportIndexes() map[string]map[string][]string {
+	exported := make(map[string]map[string][]string)
+
+	for collectionName, collectionIndexes := range ie.indexes {
+		exported[collectionName] = make(map[string][]string)
+
+		for fieldName, index := range collectionIndexes {
+			// Convert the inverted index to a simple field->docIDs mapping
+			// For persistence, we'll store the field name and all document IDs that have this field
+			var docIDs []string
+			for _, docs := range index.Inverted {
+				docIDs = append(docIDs, docs...)
+			}
+			// Remove duplicates
+			uniqueDocIDs := make(map[string]bool)
+			for _, docID := range docIDs {
+				uniqueDocIDs[docID] = true
+			}
+			var finalDocIDs []string
+			for docID := range uniqueDocIDs {
+				finalDocIDs = append(finalDocIDs, docID)
+			}
+			exported[collectionName][fieldName] = finalDocIDs
+		}
+	}
+
+	return exported
+}
+
+// ImportIndexes imports indexes from a persistence format
+func (ie *IndexEngine) ImportIndexes(indexData map[string]map[string][]string) error {
+	for collectionName, collectionIndexes := range indexData {
+		// Initialize collection indexes if they don't exist
+		if ie.indexes[collectionName] == nil {
+			ie.indexes[collectionName] = make(map[string]*Index)
+		}
+
+		for fieldName, docIDs := range collectionIndexes {
+			// Create a new index for this field
+			index := NewIndex(fieldName)
+
+			// For each document ID, we need to add it to the index
+			// Since we don't have the actual field values here, we'll create a placeholder
+			// The index will be rebuilt when documents are loaded
+			for _, docID := range docIDs {
+				// Use a placeholder value - the index will be properly built when documents are loaded
+				index.Inverted["_placeholder"] = append(index.Inverted["_placeholder"], docID)
+			}
+
+			ie.indexes[collectionName][fieldName] = index
+		}
+	}
+
+	return nil
+}
+
+// RebuildIndexForCollection rebuilds an index for a collection after loading documents
+func (ie *IndexEngine) RebuildIndexForCollection(collectionName string, collection *domain.Collection) {
+	if collectionIndexes, exists := ie.indexes[collectionName]; exists {
+		for fieldName, index := range collectionIndexes {
+			// Clear the placeholder data
+			index.Inverted = make(map[interface{}][]string)
+
+			// Rebuild the index with actual document data
+			for docID, doc := range collection.Documents {
+				if value, exists := doc[fieldName]; exists {
+					index.Inverted[value] = append(index.Inverted[value], docID)
+				}
+			}
+		}
+	}
+}

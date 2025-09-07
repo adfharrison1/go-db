@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/adfharrison1/go-db/pkg/domain"
 	"github.com/adfharrison1/go-db/pkg/indexing"
 )
 
@@ -28,6 +29,7 @@ type StorageEngine struct {
 	// Configuration
 	maxMemoryMB     int
 	dataDir         string
+	dataFile        string // Current data file for single-file persistence
 	backgroundSave  bool
 	transactionSave bool
 	saveInterval    time.Duration
@@ -128,4 +130,9 @@ func (se *StorageEngine) SaveCollectionAfterTransaction(collName string) error {
 // IsTransactionSaveEnabled returns whether transaction-based saves are enabled
 func (se *StorageEngine) IsTransactionSaveEnabled() bool {
 	return se.transactionSave
+}
+
+// GetIndexEngine returns the index engine instance
+func (se *StorageEngine) GetIndexEngine() domain.IndexEngine {
+	return se.indexEngine
 }

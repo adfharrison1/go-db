@@ -3412,3 +3412,99 @@ func TestStorageEngine_BatchUpdate_Validation(t *testing.T) {
 		assert.Contains(t, err.Error(), "limited to 1000 operations")
 	})
 }
+
+func TestStorageEngine_IndexPersistence(t *testing.T) {
+	tempFile := "test_index_persistence.godb"
+	defer os.Remove(tempFile)
+
+	// Create first engine and add data with indexes
+	engine1 := NewStorageEngine()
+	defer engine1.StopBackgroundWorkers()
+
+	// Insert documents
+	doc1 := domain.Document{"name": "Alice", "age": 30, "city": "New York"}
+	doc2 := domain.Document{"name": "Bob", "age": 25, "city": "Boston"}
+	doc3 := domain.Document{"name": "Charlie", "age": 35, "city": "Chicago"}
+
+	_, err := engine1.Insert("users", doc1)
+	require.NoError(t, err)
+
+	_, err = engine1.Insert("users", doc2)
+	require.NoError(t, err)
+
+	_, err = engine1.Insert("users", doc3)
+	require.NoError(t, err)
+
+	// Create indexes
+	err = engine1.indexEngine.CreateIndex("users", "age")
+	require.NoError(t, err)
+
+	err = engine1.indexEngine.CreateIndex("users", "city")
+	require.NoError(t, err)
+
+	// Build indexes for the collection
+	collection, err := engine1.GetCollection("users")
+	require.NoError(t, err)
+
+	err = engine1.indexEngine.BuildIndexForCollection("users", "age", collection)
+	require.NoError(t, err)
+
+	err = engine1.indexEngine.BuildIndexForCollection("users", "city", collection)
+	require.NoError(t, err)
+
+	// Verify indexes exist (including auto-created _id index)
+	indexes, err := engine1.indexEngine.GetIndexes("users")
+	require.NoError(t, err)
+	assert.Len(t, indexes, 3) // _id, age, city
+	assert.Contains(t, indexes, "_id")
+	assert.Contains(t, indexes, "age")
+	assert.Contains(t, indexes, "city")
+
+	// Save to file
+	err = engine1.SaveToFile(tempFile)
+	require.NoError(t, err)
+
+	// Create second engine and load from file
+	engine2 := NewStorageEngine()
+	defer engine2.StopBackgroundWorkers()
+
+	err = engine2.LoadCollectionMetadata(tempFile)
+	require.NoError(t, err)
+
+	// Verify indexes were loaded (including auto-created _id index)
+	indexes, err = engine2.indexEngine.GetIndexes("users")
+	require.NoError(t, err)
+	assert.Len(t, indexes, 3, "Indexes should be loaded from file")
+	assert.Contains(t, indexes, "_id")
+	assert.Contains(t, indexes, "age")
+	assert.Contains(t, indexes, "city")
+
+	// Load the collection to trigger index rebuilding
+	collection, err = engine2.GetCollection("users")
+	require.NoError(t, err)
+
+	// Verify index functionality works
+	ageIndex, exists := engine2.indexEngine.GetIndex("users", "age")
+	require.True(t, exists)
+
+	// Query by age (use int8 to match the stored type)
+	docIDs := ageIndex.Query(int8(30))
+	assert.Len(t, docIDs, 1)
+	assert.Equal(t, "1", docIDs[0])
+
+	docIDs = ageIndex.Query(int8(25))
+	assert.Len(t, docIDs, 1)
+	assert.Equal(t, "2", docIDs[0])
+
+	// Query by city
+	cityIndex, exists := engine2.indexEngine.GetIndex("users", "city")
+	require.True(t, exists)
+
+	docIDs = cityIndex.Query("New York")
+	assert.Len(t, docIDs, 1)
+	assert.Equal(t, "1", docIDs[0])
+
+	docIDs = cityIndex.Query("Boston")
+	assert.Len(t, docIDs, 1)
+	assert.Equal(t, "2", docIDs[0])
+}

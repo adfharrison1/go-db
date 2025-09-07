@@ -24,7 +24,7 @@ func (h *Handler) HandleCreateIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.indexer.CreateIndex(collName, fieldName)
+	err := h.storage.CreateIndex(collName, fieldName)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

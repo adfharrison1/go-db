@@ -29,7 +29,16 @@ func (se *StorageEngine) getCollectionInternal(collName string) (*domain.Collect
 	}
 
 	// Load collection from disk
-	collection, err := se.loadCollectionFromDisk(collName)
+	var collection *domain.Collection
+	var err error
+
+	// Use single file approach if dataFile is set, otherwise use per-collection files
+	if se.dataFile != "" {
+		collection, err = se.loadCollectionFromSingleFile(collName, se.dataFile)
+	} else {
+		collection, err = se.loadCollectionFromDisk(collName)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to load collection %s: %w", collName, err)
 	}

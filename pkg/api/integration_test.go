@@ -1089,7 +1089,7 @@ func TestAPI_Integration_PersistenceAcrossRestart(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 
-		// Verify indexes need to be recreated after restart (current limitation)
+		// Verify indexes persisted across restart
 		resp, err = server2.GET("/collections/users/indexes")
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -1101,22 +1101,13 @@ func TestAPI_Integration_PersistenceAcrossRestart(t *testing.T) {
 		require.NoError(t, err)
 
 		indexes := result["indexes"].([]interface{})
-		// Note: Indexes are not persisted in the current implementation
-		// They need to be recreated after restart
-		assert.Len(t, indexes, 0, "Indexes are not persisted and need to be recreated after restart")
+		// Indexes should now persist across restarts
+		assert.Len(t, indexes, 3, "Should have _id, age, and city indexes after restart")
+		assert.Contains(t, indexes, "_id")
+		assert.Contains(t, indexes, "age")
+		assert.Contains(t, indexes, "city")
 
-		// Recreate indexes after restart
-		resp, err = server2.POST("/collections/users/indexes/age", nil)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusCreated, resp.StatusCode)
-		resp.Body.Close()
-
-		resp, err = server2.POST("/collections/users/indexes/city", nil)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusCreated, resp.StatusCode)
-		resp.Body.Close()
-
-		// Now verify index functionality works after recreation
+		// Verify index functionality works after restart
 		resp, err = server2.GET("/collections/users/find?age=31")
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)

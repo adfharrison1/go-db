@@ -28,6 +28,7 @@ type StorageEngine interface {
 	SaveCollectionAfterTransaction(collName string) error
 	IsTransactionSaveEnabled() bool
 	GetIndexes(collName string) ([]string, error)
+	CreateIndex(collName, fieldName string) error
 }
 
 // DatabaseEngine combines StorageEngine and IndexEngine interfaces
