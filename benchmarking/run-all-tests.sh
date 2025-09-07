@@ -64,11 +64,22 @@ run_k6_test() {
     print_status "Running k6 test: $test_name"
     echo "----------------------------------------"
     
-    if k6 run "$test_file"; then
-        print_success "k6 test '$test_name' completed successfully"
+    # Special handling for index performance test with analysis
+    if [ "$test_file" = "index-performance-test.js" ]; then
+        print_status "Running with performance analysis..."
+        if k6 run "$test_file" 2>&1 | node analyze-results.js; then
+            print_success "k6 test '$test_name' completed successfully with analysis"
+        else
+            print_error "k6 test '$test_name' failed"
+            return 1
+        fi
     else
-        print_error "k6 test '$test_name' failed"
-        return 1
+        if k6 run "$test_file"; then
+            print_success "k6 test '$test_name' completed successfully"
+        else
+            print_error "k6 test '$test_name' failed"
+            return 1
+        fi
     fi
     
     echo ""

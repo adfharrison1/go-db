@@ -98,15 +98,31 @@ k6 run batch-operations-test.js
 
 #### 3. Index Performance Test (`index-performance-test.js`)
 
-- **Purpose**: Compares indexed vs non-indexed query performance
-- **Duration**: 3 minutes
+- **Purpose**: Compares indexed vs non-indexed query performance on identical datasets
+- **Duration**: 1 minute (15s ramp up, 30s steady, 15s ramp down)
 - **Users**: 15 concurrent users
-- **Operations**: Indexed queries, non-indexed queries, compound queries
-- **Thresholds**: P95 < 50ms, Error rate < 10%
+- **Dataset**: 100,000 documents in both indexed and non-indexed collections (inserted in 100 batches of 1,000)
+- **Setup Time**: ~3-5 minutes for data insertion (setupTimeout: 5m)
+- **Operations**: Same age queries on both collections for direct comparison
+- **Thresholds**: P95 < 200ms, Error rate < 10%
+- **Analysis**: Includes custom analysis script for detailed performance metrics
 
 ```bash
+# Run test with analysis
+k6 run index-performance-test.js 2>&1 | node analyze-results.js
+
+# Run test without analysis (raw output)
 k6 run index-performance-test.js
 ```
+
+**What it tests:**
+
+- Creates identical 100,000 document datasets in two collections (using 100 batches of 1,000 documents each)
+- Creates an age index on one collection only
+- Runs the same age queries on both collections
+- **Validates data consistency**: Ensures both queries return exactly the same documents
+- Compares response times to measure index effectiveness (only for validated queries)
+- Shows win/loss statistics, speedup ranges, and performance by result count
 
 #### 4. Streaming Performance Test (`streaming-test.js`)
 
@@ -243,6 +259,43 @@ wrk -t12 -c400 -d2m -s find.lua http://localhost:8080/collections/test/find
   - `stdev`: Standard deviation
   - `max`: Maximum latency
   - `+/- stdev`: 68% of requests within this range
+
+### Index Performance Analysis (`analyze-results.js`)
+
+The index performance test includes a custom analysis script that processes k6 output and provides detailed statistics:
+
+```bash
+# Run with analysis
+k6 run index-performance-test.js 2>&1 | node analyze-results.js
+```
+
+**Analysis Output:**
+
+- **Summary Statistics**: Win/loss ratios, total comparisons
+- **Performance Metrics**: Average response times, speedup calculations
+- **Range Analysis**: Min/max response times and speedup ranges
+- **Best/Worst Cases**: Specific examples of index performance
+- **Performance by Result Count**: How speedup varies with query selectivity
+
+**Example Output:**
+
+```
+📊 SUMMARY STATISTICS:
+   Total comparisons: 4530
+   Indexed wins: 2453 (54.2%)
+   Non-indexed wins: 2033 (44.9%)
+   Ties: 44 (1.0%)
+
+⚡ PERFORMANCE METRICS:
+   Average indexed query time: 23.67ms
+   Average non-indexed query time: 24.32ms
+   Average speedup: 1.26x
+
+🏆 BEST INDEX PERFORMANCE:
+   Age 53: 14.07x speedup
+   Indexed: 10.40ms (32 results)
+   Non-indexed: 146.39ms (16 results)
+```
 
 ## Performance Expectations
 
