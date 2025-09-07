@@ -72,8 +72,18 @@ export default function (data) {
 
   const indexedQuerySuccess = check(indexedQueryResponse, {
     'indexed query status is 200': (r) => r.status === 200,
-    'indexed query returns results': (r) =>
-      Array.isArray(JSON.parse(r.body).documents),
+    'indexed query returns results': (r) => {
+      if (r.status !== 200) return false;
+      try {
+        const parsed = JSON.parse(r.body);
+        return Array.isArray(parsed.documents);
+      } catch (e) {
+        console.log(
+          `Indexed query JSON parse error: ${e.message}, body: ${r.body}`
+        );
+        return false;
+      }
+    },
   });
 
   if (!indexedQuerySuccess) {

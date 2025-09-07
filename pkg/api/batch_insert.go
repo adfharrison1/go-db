@@ -33,20 +33,20 @@ func (h *Handler) HandleBatchInsert(w http.ResponseWriter, r *http.Request) {
 	var req BatchInsertRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Printf("ERROR: Decoding body failed: %v", err)
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	// Validate request
 	if len(req.Documents) == 0 {
 		log.Printf("ERROR: No documents provided for batch insert")
-		http.Error(w, "No documents provided", http.StatusBadRequest)
+		WriteJSONError(w, http.StatusBadRequest, "No documents provided")
 		return
 	}
 
 	if len(req.Documents) > 1000 {
 		log.Printf("ERROR: Too many documents for batch insert: %d", len(req.Documents))
-		http.Error(w, "Maximum 1000 documents allowed per batch", http.StatusBadRequest)
+		WriteJSONError(w, http.StatusBadRequest, "Maximum 1000 documents allowed per batch")
 		return
 	}
 
@@ -64,7 +64,7 @@ func (h *Handler) HandleBatchInsert(w http.ResponseWriter, r *http.Request) {
 	createdDocs, err := h.storage.BatchInsert(collName, docs)
 	if err != nil {
 		log.Printf("ERROR: Batch insert failed for collection '%s': %v", collName, err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		WriteJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 

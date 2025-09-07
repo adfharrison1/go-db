@@ -14,19 +14,19 @@ func (h *Handler) HandleCreateIndex(w http.ResponseWriter, r *http.Request) {
 	fieldName := vars["field"]
 
 	if fieldName == "" {
-		http.Error(w, "field name is required", http.StatusBadRequest)
+		WriteJSONError(w, http.StatusBadRequest, "field name is required")
 		return
 	}
 
 	// Prevent creating index on _id (it's automatically created)
 	if fieldName == "_id" {
-		http.Error(w, "cannot create index on _id field (automatically indexed)", http.StatusBadRequest)
+		WriteJSONError(w, http.StatusBadRequest, "cannot create index on _id field (automatically indexed)")
 		return
 	}
 
 	err := h.storage.CreateIndex(collName, fieldName)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		WriteJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 

@@ -18,7 +18,7 @@ func (h *Handler) HandleReplaceById(w http.ResponseWriter, r *http.Request) {
 	log.Printf("INFO: handleReplaceById called for collection '%s', document '%s'", collName, docId)
 
 	if collName == "" || docId == "" {
-		http.Error(w, "collection name and document ID are required", http.StatusBadRequest)
+		WriteJSONError(w, http.StatusBadRequest, "collection name and document ID are required")
 		return
 	}
 
@@ -26,7 +26,7 @@ func (h *Handler) HandleReplaceById(w http.ResponseWriter, r *http.Request) {
 	var newDoc map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&newDoc); err != nil {
 		log.Printf("ERROR: Decoding body failed: %v", err)
-		http.Error(w, "invalid JSON in request body", http.StatusBadRequest)
+		WriteJSONError(w, http.StatusBadRequest, "invalid JSON in request body")
 		return
 	}
 
@@ -34,7 +34,7 @@ func (h *Handler) HandleReplaceById(w http.ResponseWriter, r *http.Request) {
 	replacedDoc, err := h.storage.ReplaceById(collName, docId, newDoc)
 	if err != nil {
 		log.Printf("ERROR: Replace failed for document '%s' in collection '%s': %v", docId, collName, err)
-		http.Error(w, err.Error(), http.StatusNotFound)
+		WriteJSONError(w, http.StatusNotFound, err.Error())
 		return
 	}
 

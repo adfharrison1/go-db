@@ -19,7 +19,7 @@ func (h *Handler) HandleGetById(w http.ResponseWriter, r *http.Request) {
 	doc, err := h.storage.GetById(collName, docId)
 	if err != nil {
 		log.Printf("ERROR: Document '%s' not found in collection '%s': %v", docId, collName, err)
-		http.Error(w, err.Error(), http.StatusNotFound)
+		WriteJSONError(w, http.StatusNotFound, err.Error())
 		return
 	}
 

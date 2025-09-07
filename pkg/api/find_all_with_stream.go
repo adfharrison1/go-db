@@ -55,7 +55,7 @@ func (h *Handler) HandleFindAllWithStream(w http.ResponseWriter, r *http.Request
 	docChan, err := h.storage.FindAllStream(collName, filter)
 	if err != nil {
 		log.Printf("ERROR: Collection '%s' not found: %v", collName, err)
-		http.Error(w, err.Error(), http.StatusNotFound)
+		WriteJSONError(w, http.StatusNotFound, err.Error())
 		return
 	}
 

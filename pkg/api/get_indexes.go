@@ -19,7 +19,7 @@ func (h *Handler) HandleGetIndexes(w http.ResponseWriter, r *http.Request) {
 	indexes, err := h.storage.GetIndexes(collName)
 	if err != nil {
 		log.Printf("ERROR: Failed to get indexes for collection '%s': %v", collName, err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		WriteJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 

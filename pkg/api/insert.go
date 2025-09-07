@@ -19,7 +19,7 @@ func (h *Handler) HandleInsert(w http.ResponseWriter, r *http.Request) {
 	var doc map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&doc); err != nil {
 		log.Printf("ERROR: Decoding body failed: %v", err)
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -32,7 +32,7 @@ func (h *Handler) HandleInsert(w http.ResponseWriter, r *http.Request) {
 	createdDoc, err := h.storage.Insert(collName, document)
 	if err != nil {
 		log.Printf("ERROR: Insert failed for collection '%s': %v", collName, err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		WriteJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 

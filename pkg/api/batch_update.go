@@ -81,7 +81,7 @@ func (h *Handler) HandleBatchUpdate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Atomic failure - all operations failed
 		log.Printf("ERROR: Batch update failed for collection '%s': %v", collName, err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		WriteJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	} else {
 		// Complete success

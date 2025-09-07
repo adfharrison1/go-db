@@ -20,7 +20,7 @@ func (h *Handler) HandleUpdateById(w http.ResponseWriter, r *http.Request) {
 	var updates map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
 		log.Printf("ERROR: Decoding body failed: %v", err)
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -33,7 +33,7 @@ func (h *Handler) HandleUpdateById(w http.ResponseWriter, r *http.Request) {
 	updatedDoc, err := h.storage.UpdateById(collName, docId, updateDoc)
 	if err != nil {
 		log.Printf("ERROR: Update failed for document '%s' in collection '%s': %v", docId, collName, err)
-		http.Error(w, err.Error(), http.StatusNotFound)
+		WriteJSONError(w, http.StatusNotFound, err.Error())
 		return
 	}
 

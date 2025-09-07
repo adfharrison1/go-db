@@ -17,7 +17,7 @@ func (h *Handler) HandleDeleteById(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.storage.DeleteById(collName, docId); err != nil {
 		log.Printf("ERROR: Delete failed for document '%s' in collection '%s': %v", docId, collName, err)
-		http.Error(w, err.Error(), http.StatusNotFound)
+		WriteJSONError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
