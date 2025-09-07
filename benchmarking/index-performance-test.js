@@ -6,9 +6,9 @@ const errorRate = new Rate('errors');
 
 export const options = {
   stages: [
-    { duration: '30s', target: 15 }, // Ramp up to 15 users
-    { duration: '2m', target: 15 }, // Stay at 15 users
-    { duration: '30s', target: 0 }, // Ramp down to 0 users
+    { duration: '15s', target: 15 }, // Ramp up to 15 users
+    { duration: '30m', target: 15 }, // Stay at 15 users
+    { duration: '15s', target: 0 }, // Ramp down to 0 users
   ],
   thresholds: {
     http_req_duration: ['p(95)<50'], // 95% of requests under 50ms
@@ -101,8 +101,18 @@ export default function (data) {
 
   const nonIndexedQuerySuccess = check(nonIndexedQueryResponse, {
     'non-indexed query status is 200': (r) => r.status === 200,
-    'non-indexed query returns results': (r) =>
-      Array.isArray(JSON.parse(r.body).documents),
+    'non-indexed query returns results': (r) => {
+      if (r.status !== 200) return false;
+      try {
+        const parsed = JSON.parse(r.body);
+        return Array.isArray(parsed.documents);
+      } catch (e) {
+        console.log(
+          `Non-indexed query JSON parse error: ${e.message}, body: ${r.body}`
+        );
+        return false;
+      }
+    },
   });
 
   if (!nonIndexedQuerySuccess) {
@@ -116,8 +126,18 @@ export default function (data) {
 
   const compoundQuerySuccess = check(compoundQueryResponse, {
     'compound query status is 200': (r) => r.status === 200,
-    'compound query returns results': (r) =>
-      Array.isArray(JSON.parse(r.body).documents),
+    'compound query returns results': (r) => {
+      if (r.status !== 200) return false;
+      try {
+        const parsed = JSON.parse(r.body);
+        return Array.isArray(parsed.documents);
+      } catch (e) {
+        console.log(
+          `Compound query JSON parse error: ${e.message}, body: ${r.body}`
+        );
+        return false;
+      }
+    },
   });
 
   if (!compoundQuerySuccess) {
