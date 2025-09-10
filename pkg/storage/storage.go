@@ -26,6 +26,10 @@ type StorageEngine struct {
 	collectionLocks map[string]*CollectionLock
 	locksMu         sync.RWMutex
 
+	// Per-document locks for maximum concurrency
+	documentLocks map[string]*sync.RWMutex // "collection:docID" -> lock
+	docLocksMu    sync.RWMutex             // protects documentLocks map
+
 	// Configuration
 	maxMemoryMB     int
 	dataDir         string
@@ -50,6 +54,7 @@ func NewStorageEngine(options ...StorageOption) *StorageEngine {
 		indexEngine:     indexing.NewIndexEngine(),
 		metadata:        make(map[string]interface{}),
 		collectionLocks: make(map[string]*CollectionLock),
+		documentLocks:   make(map[string]*sync.RWMutex),
 		idCounters:      make(map[string]*int64),
 		maxMemoryMB:     1024, // 1GB default
 		dataDir:         ".",
@@ -106,6 +111,47 @@ func (se *StorageEngine) withCollectionWriteLock(collName string, fn func() erro
 	lock := se.getOrCreateCollectionLock(collName)
 	lock.mu.Lock()
 	defer lock.mu.Unlock()
+	return fn()
+}
+
+// getOrCreateDocumentLock gets or creates a lock for a specific document
+func (se *StorageEngine) getOrCreateDocumentLock(collName, docID string) *sync.RWMutex {
+	lockKey := collName + ":" + docID
+
+	se.docLocksMu.RLock()
+	if lock, exists := se.documentLocks[lockKey]; exists {
+		se.docLocksMu.RUnlock()
+		return lock
+	}
+	se.docLocksMu.RUnlock()
+
+	// Need to create the lock
+	se.docLocksMu.Lock()
+	defer se.docLocksMu.Unlock()
+
+	// Double-check in case another goroutine created it
+	if lock, exists := se.documentLocks[lockKey]; exists {
+		return lock
+	}
+
+	lock := &sync.RWMutex{}
+	se.documentLocks[lockKey] = lock
+	return lock
+}
+
+// withDocumentReadLock executes a function with a read lock on the specified document
+func (se *StorageEngine) withDocumentReadLock(collName, docID string, fn func() error) error {
+	lock := se.getOrCreateDocumentLock(collName, docID)
+	lock.RLock()
+	defer lock.RUnlock()
+	return fn()
+}
+
+// withDocumentWriteLock executes a function with a write lock on the specified document
+func (se *StorageEngine) withDocumentWriteLock(collName, docID string, fn func() error) error {
+	lock := se.getOrCreateDocumentLock(collName, docID)
+	lock.Lock()
+	defer lock.Unlock()
 	return fn()
 }
 

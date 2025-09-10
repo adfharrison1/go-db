@@ -2,6 +2,7 @@ package indexing
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/adfharrison1/go-db/pkg/domain"
 )
@@ -9,6 +10,7 @@ import (
 // IndexEngine implements domain.IndexEngine interface
 type IndexEngine struct {
 	indexes map[string]map[string]*Index // Collection name -> field name -> index
+	mu      sync.RWMutex                 // Protects concurrent access to indexes
 }
 
 // NewIndexEngine creates a new index engine
@@ -22,6 +24,7 @@ func NewIndexEngine() *IndexEngine {
 type Index struct {
 	Field    string
 	Inverted map[interface{}][]string
+	mu       sync.RWMutex // Protects concurrent access to Inverted map
 }
 
 // NewIndex creates an index on a specific field.
@@ -34,6 +37,9 @@ func NewIndex(field string) *Index {
 
 // BuildIndex indexes all documents in a collection by the specified field.
 func (idx *Index) BuildIndex(collection *domain.Collection) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
 	for docID, doc := range collection.Documents {
 		val, ok := doc[idx.Field]
 		if ok {
@@ -44,6 +50,9 @@ func (idx *Index) BuildIndex(collection *domain.Collection) {
 
 // Query returns document IDs that match a given value in the indexed field.
 func (idx *Index) Query(value interface{}) []string {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
 	if docIDs, ok := idx.Inverted[value]; ok {
 		return docIDs
 	}
@@ -52,6 +61,9 @@ func (idx *Index) Query(value interface{}) []string {
 
 // UpdateIndex updates index after an insert/update/delete operation.
 func (idx *Index) UpdateIndex(docID string, oldDoc, newDoc domain.Document) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
 	// Remove old entry
 	if oldVal, ok := oldDoc[idx.Field]; ok {
 		// remove docID from the oldVal array
@@ -71,6 +83,9 @@ func (idx *Index) UpdateIndex(docID string, oldDoc, newDoc domain.Document) {
 
 // CreateIndex creates an index on a specific field in a collection
 func (ie *IndexEngine) CreateIndex(collectionName, fieldName string) error {
+	ie.mu.Lock()
+	defer ie.mu.Unlock()
+
 	// Initialize indexes map for this collection if it doesn't exist
 	if ie.indexes[collectionName] == nil {
 		ie.indexes[collectionName] = make(map[string]*Index)
@@ -90,6 +105,9 @@ func (ie *IndexEngine) CreateIndex(collectionName, fieldName string) error {
 
 // DropIndex removes an index from a collection
 func (ie *IndexEngine) DropIndex(collectionName, fieldName string) error {
+	ie.mu.Lock()
+	defer ie.mu.Unlock()
+
 	// Check if index exists
 	if ie.indexes[collectionName] == nil {
 		return fmt.Errorf("no indexes exist for collection %s", collectionName)
@@ -107,6 +125,9 @@ func (ie *IndexEngine) DropIndex(collectionName, fieldName string) error {
 
 // FindByIndex finds documents using an index
 func (ie *IndexEngine) FindByIndex(collectionName, fieldName string, value interface{}) ([]domain.Document, error) {
+	ie.mu.RLock()
+	defer ie.mu.RUnlock()
+
 	// Get the index
 	index, exists := ie.getIndex(collectionName, fieldName)
 	if !exists {
@@ -127,6 +148,9 @@ func (ie *IndexEngine) FindByIndex(collectionName, fieldName string, value inter
 
 // GetIndexes returns all index names for a collection
 func (ie *IndexEngine) GetIndexes(collectionName string) ([]string, error) {
+	ie.mu.RLock()
+	defer ie.mu.RUnlock()
+
 	// Get indexes for the collection
 	collectionIndexes, exists := ie.indexes[collectionName]
 	if !exists {
@@ -144,6 +168,9 @@ func (ie *IndexEngine) GetIndexes(collectionName string) ([]string, error) {
 
 // UpdateIndex rebuilds an index for a collection
 func (ie *IndexEngine) UpdateIndex(collectionName, fieldName string) error {
+	ie.mu.RLock()
+	defer ie.mu.RUnlock()
+
 	// Check if index exists
 	if ie.indexes[collectionName] == nil {
 		return fmt.Errorf("no indexes exist for collection %s", collectionName)
@@ -177,6 +204,9 @@ func (ie *IndexEngine) GetIndex(collectionName, fieldName string) (*Index, bool)
 
 // BuildIndexForCollection builds an index for a specific collection
 func (ie *IndexEngine) BuildIndexForCollection(collectionName, fieldName string, collection *domain.Collection) error {
+	ie.mu.Lock()
+	defer ie.mu.Unlock()
+
 	// Get or create the index
 	if ie.indexes[collectionName] == nil {
 		ie.indexes[collectionName] = make(map[string]*Index)
@@ -195,6 +225,9 @@ func (ie *IndexEngine) BuildIndexForCollection(collectionName, fieldName string,
 
 // UpdateIndexForDocument updates an index when a document changes
 func (ie *IndexEngine) UpdateIndexForDocument(collectionName, docID string, oldDoc, newDoc domain.Document) {
+	ie.mu.RLock()
+	defer ie.mu.RUnlock()
+
 	if collectionIndexes, exists := ie.indexes[collectionName]; exists {
 		for _, index := range collectionIndexes {
 			index.UpdateIndex(docID, oldDoc, newDoc)
@@ -204,6 +237,9 @@ func (ie *IndexEngine) UpdateIndexForDocument(collectionName, docID string, oldD
 
 // ExportIndexes exports all indexes in a format suitable for persistence
 func (ie *IndexEngine) ExportIndexes() map[string]map[string][]string {
+	ie.mu.RLock()
+	defer ie.mu.RUnlock()
+
 	exported := make(map[string]map[string][]string)
 
 	for collectionName, collectionIndexes := range ie.indexes {
@@ -234,6 +270,9 @@ func (ie *IndexEngine) ExportIndexes() map[string]map[string][]string {
 
 // ImportIndexes imports indexes from a persistence format
 func (ie *IndexEngine) ImportIndexes(indexData map[string]map[string][]string) error {
+	ie.mu.Lock()
+	defer ie.mu.Unlock()
+
 	for collectionName, collectionIndexes := range indexData {
 		// Initialize collection indexes if they don't exist
 		if ie.indexes[collectionName] == nil {
@@ -261,6 +300,9 @@ func (ie *IndexEngine) ImportIndexes(indexData map[string]map[string][]string) e
 
 // RebuildIndexForCollection rebuilds an index for a collection after loading documents
 func (ie *IndexEngine) RebuildIndexForCollection(collectionName string, collection *domain.Collection) {
+	ie.mu.Lock()
+	defer ie.mu.Unlock()
+
 	if collectionIndexes, exists := ie.indexes[collectionName]; exists {
 		for fieldName, index := range collectionIndexes {
 			// Clear the placeholder data

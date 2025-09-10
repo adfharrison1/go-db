@@ -225,8 +225,8 @@ func TestStorageEngine_LoadCollectionFromDisk(t *testing.T) {
 
 	tempFile := filepath.Join(tempDir, "test_load_collection.godb")
 
-	// Create engine and save data
-	engine1 := NewStorageEngine(WithDataDir(tempDir))
+	// Create engine and save data (disable transaction saves to test monolithic vs per-collection loading)
+	engine1 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
 	defer engine1.StopBackgroundWorkers()
 
 	// Insert test data
@@ -330,7 +330,7 @@ func TestStorageEngine_SaveDirtyCollections_FileOperations(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
-	engine := NewStorageEngine(WithDataDir(tempDir))
+	engine := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
 	defer engine.StopBackgroundWorkers()
 
 	// Create multiple collections with different data
@@ -492,7 +492,8 @@ func TestStorageEngine_SaveDirtyCollections_EmptyCollections(t *testing.T) {
 }
 
 func TestStorageEngine_SaveCollectionToFile_ErrorHandling(t *testing.T) {
-	engine := NewStorageEngine(WithDataDir("/invalid/path/that/does/not/exist"))
+	// Disable transaction saves to test manual save error handling
+	engine := NewStorageEngine(WithDataDir("/invalid/path/that/does/not/exist"), WithTransactionSave(false))
 	defer engine.StopBackgroundWorkers()
 
 	// Create collection

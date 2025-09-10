@@ -1,0 +1,117 @@
+# Different configurations for benchmarking
+# Usage: docker-compose -f docker-compose-configs.yml up <service-name>
+
+services:
+  # 1. Transaction saves (default/current behavior)
+  go-db-transaction:
+    build: .
+    ports:
+      - '8080:8080'
+    volumes:
+      - go-db-transaction-data:/app/data
+    restart: unless-stopped
+    command: ['-data-dir', '/app/data', '-transaction-save=true']
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '--quiet',
+          '--tries=1',
+          '--spider',
+          'http://localhost:8080/health',
+        ]
+      interval: 60s
+      timeout: 5s
+      retries: 2
+
+  # 2. Background saves every 1 second (balanced)
+  go-db-background-1s:
+    build: .
+    ports:
+      - '8080:8080'
+    volumes:
+      - go-db-background-1s-data:/app/data
+    restart: unless-stopped
+    command:
+      [
+        '-data-dir',
+        '/app/data',
+        '-transaction-save=false',
+        '-background-save=1s',
+      ]
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '--quiet',
+          '--tries=1',
+          '--spider',
+          'http://localhost:8080/health',
+        ]
+      interval: 60s
+      timeout: 5s
+      retries: 2
+
+  # 3. Background saves every 5 seconds (more balanced)
+  go-db-background-5s:
+    build: .
+    ports:
+      - '8080:8080'
+    volumes:
+      - go-db-background-5s-data:/app/data
+    restart: unless-stopped
+    command:
+      [
+        '-data-dir',
+        '/app/data',
+        '-transaction-save=false',
+        '-background-save=5s',
+      ]
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '--quiet',
+          '--tries=1',
+          '--spider',
+          'http://localhost:8080/health',
+        ]
+      interval: 60s
+      timeout: 5s
+      retries: 2
+
+  # 4. No automatic saves (pure performance)
+  go-db-no-saves:
+    build: .
+    ports:
+      - '8080:8080'
+    volumes:
+      - go-db-no-saves-data:/app/data
+    restart: unless-stopped
+    command: ['-data-dir', '/app/data', '-transaction-save=false']
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '--quiet',
+          '--tries=1',
+          '--spider',
+          'http://localhost:8080/health',
+        ]
+      interval: 60s
+      timeout: 5s
+      retries: 2
+
+volumes:
+  go-db-transaction-data:
+    driver: local
+  go-db-background-1s-data:
+    driver: local
+  go-db-background-5s-data:
+    driver: local
+  go-db-no-saves-data:
+    driver: local

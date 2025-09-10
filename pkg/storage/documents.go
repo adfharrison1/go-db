@@ -11,18 +11,96 @@ import (
 
 // Insert inserts a document into a collection and returns the created document with ID
 func (se *StorageEngine) Insert(collName string, doc domain.Document) (domain.Document, error) {
-	var result domain.Document
-	var resultErr error
-
+	// First, ensure collection exists and generate ID (requires collection lock)
+	var docID string
 	err := se.withCollectionWriteLock(collName, func() error {
-		result, resultErr = se.insertUnsafe(collName, doc)
-		return resultErr
+		// Get or load collection
+		_, err := se.getCollectionInternal(collName)
+		if err != nil {
+			// Collection doesn't exist, create it
+			collection := domain.NewCollection(collName)
+			collectionInfo := &CollectionInfo{
+				Name:          collName,
+				DocumentCount: 0,
+				State:         CollectionStateDirty,
+				LastModified:  time.Now(),
+			}
+			se.collections[collName] = collectionInfo
+			se.cache.Put(collName, collection, collectionInfo)
+
+			// Initialize indexes for this collection using the index engine
+			se.indexEngine.CreateIndex(collName, "_id")
+		}
+
+		// Generate unique ID using per-collection atomic counter (thread-safe)
+		se.idCountersMu.Lock()
+		counter, exists := se.idCounters[collName]
+		if !exists {
+			counter = new(int64)
+			se.idCounters[collName] = counter
+		}
+		se.idCountersMu.Unlock()
+
+		docID = fmt.Sprintf("%d", atomic.AddInt64(counter, 1))
+		return nil
 	})
 
 	if err != nil {
 		return nil, err
 	}
+
+	// Now insert the document using document-level lock
+	var result domain.Document
+	var resultErr error
+
+	// Insert operations modify the Documents map, so they need collection write locks
+	err = se.withCollectionWriteLock(collName, func() error {
+		err := se.withDocumentWriteLock(collName, docID, func() error {
+			result, resultErr = se.insertDocumentUnsafe(collName, docID, doc)
+			return resultErr
+		})
+		return err
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Save collection after transaction if enabled
+	if se.transactionSave {
+		if err := se.SaveCollectionAfterTransaction(collName); err != nil {
+			return nil, fmt.Errorf("failed to save collection after insert: %w", err)
+		}
+	}
+
 	return result, nil
+}
+
+// insertDocumentUnsafe performs the actual document insertion (caller must hold document write lock)
+func (se *StorageEngine) insertDocumentUnsafe(collName, docID string, doc domain.Document) (domain.Document, error) {
+	// Get collection (already exists and loaded)
+	collection, err := se.getCollectionInternal(collName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add the ID to the document
+	doc["_id"] = docID
+
+	// Store the document (need collection write lock for map modification)
+	collection.Documents[docID] = doc
+
+	// Update collection metadata
+	if collInfo, exists := se.collections[collName]; exists {
+		collInfo.DocumentCount++
+		collInfo.State = CollectionStateDirty
+		collInfo.LastModified = time.Now()
+	}
+
+	// Update indexes
+	se.indexEngine.UpdateIndexForDocument(collName, docID, nil, doc)
+
+	return doc, nil
 }
 
 // insertUnsafe performs the actual insert operation (caller must hold collection write lock)
@@ -79,9 +157,13 @@ func (se *StorageEngine) GetById(collName, docId string) (domain.Document, error
 	var result domain.Document
 	var resultErr error
 
+	// Read operations need collection read locks to coordinate with Insert/Delete operations
 	err := se.withCollectionReadLock(collName, func() error {
-		result, resultErr = se.getByIdUnsafe(collName, docId)
-		return resultErr
+		err := se.withDocumentReadLock(collName, docId, func() error {
+			result, resultErr = se.getByIdUnsafe(collName, docId)
+			return resultErr
+		})
+		return err
 	})
 
 	if err != nil {
@@ -110,7 +192,7 @@ func (se *StorageEngine) UpdateById(collName, docId string, updates domain.Docum
 	var result domain.Document
 	var resultErr error
 
-	err := se.withCollectionWriteLock(collName, func() error {
+	err := se.withDocumentWriteLock(collName, docId, func() error {
 		result, resultErr = se.updateByIdUnsafe(collName, docId, updates)
 		return resultErr
 	})
@@ -164,7 +246,7 @@ func (se *StorageEngine) ReplaceById(collName, docId string, newDoc domain.Docum
 	var result domain.Document
 	var resultErr error
 
-	err := se.withCollectionWriteLock(collName, func() error {
+	err := se.withDocumentWriteLock(collName, docId, func() error {
 		result, resultErr = se.replaceByIdUnsafe(collName, docId, newDoc)
 		return resultErr
 	})
@@ -214,8 +296,11 @@ func (se *StorageEngine) replaceByIdUnsafe(collName, docId string, newDoc domain
 
 // DeleteById removes a specific document by its ID
 func (se *StorageEngine) DeleteById(collName, docId string) error {
+	// Delete operations modify the Documents map, so they need collection write locks
 	return se.withCollectionWriteLock(collName, func() error {
-		return se.deleteByIdUnsafe(collName, docId)
+		return se.withDocumentWriteLock(collName, docId, func() error {
+			return se.deleteByIdUnsafe(collName, docId)
+		})
 	})
 }
 
@@ -577,17 +662,86 @@ func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) ([
 		return nil, fmt.Errorf("batch insert limited to 1000 documents, got %d", len(docs))
 	}
 
-	var result []domain.Document
-	var resultErr error
-
+	// First, ensure collection exists and generate all IDs (requires collection lock)
+	docIDs := make([]string, len(docs))
 	err := se.withCollectionWriteLock(collName, func() error {
-		result, resultErr = se.batchInsertUnsafe(collName, docs)
-		return resultErr
+		// Get or load collection
+		_, err := se.getCollectionInternal(collName)
+		if err != nil {
+			// Collection doesn't exist, create it
+			collection := domain.NewCollection(collName)
+			collectionInfo := &CollectionInfo{
+				Name:          collName,
+				DocumentCount: 0,
+				State:         CollectionStateDirty,
+				LastModified:  time.Now(),
+			}
+			se.collections[collName] = collectionInfo
+			se.cache.Put(collName, collection, collectionInfo)
+
+			// Initialize indexes for this collection using the index engine
+			se.indexEngine.CreateIndex(collName, "_id")
+		}
+
+		// Generate unique IDs using per-collection atomic counter (thread-safe)
+		se.idCountersMu.Lock()
+		counter, exists := se.idCounters[collName]
+		if !exists {
+			counter = new(int64)
+			se.idCounters[collName] = counter
+		}
+		se.idCountersMu.Unlock()
+
+		for i := range docs {
+			docIDs[i] = fmt.Sprintf("%d", atomic.AddInt64(counter, 1))
+		}
+		return nil
 	})
 
 	if err != nil {
 		return nil, err
 	}
+
+	// Now insert each document using document-level locks
+	var result []domain.Document
+
+	// Batch insert modifies the Documents map, so it needs collection write locks
+	err = se.withCollectionWriteLock(collName, func() error {
+		// First, check if any of the generated IDs already exist (atomic validation)
+		collection, err := se.getCollectionInternal(collName)
+		if err != nil {
+			return err
+		}
+
+		for _, docID := range docIDs {
+			if _, exists := collection.Documents[docID]; exists {
+				return fmt.Errorf("document with id %s already exists in collection %s", docID, collName)
+			}
+		}
+
+		// All IDs are available, proceed with insertions
+		for i, doc := range docs {
+			var insertDoc domain.Document
+			var insertErr error
+
+			err := se.withDocumentWriteLock(collName, docIDs[i], func() error {
+				insertDoc, insertErr = se.insertDocumentUnsafe(collName, docIDs[i], doc)
+				return insertErr
+			})
+
+			if err != nil {
+				return fmt.Errorf("failed to insert document %d: %w", i, err)
+			}
+
+			result = append(result, insertDoc)
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
 	return result, nil
 }
 
@@ -714,17 +868,31 @@ func (se *StorageEngine) BatchUpdate(collName string, operations []domain.BatchU
 		return nil, fmt.Errorf("batch update limited to 1000 operations, got %d", len(operations))
 	}
 
-	var result []domain.Document
-	var resultErr error
-
-	err := se.withCollectionWriteLock(collName, func() error {
-		result, resultErr = se.batchUpdateUnsafe(collName, operations)
-		return resultErr
-	})
-
-	if err != nil {
-		return nil, err
+	// Validate all operations first
+	for _, operation := range operations {
+		if operation.ID == "" {
+			return nil, fmt.Errorf("document ID cannot be empty")
+		}
 	}
+
+	// Process each update operation sequentially with document-level locking
+	var result []domain.Document
+	for _, operation := range operations {
+		var updateDoc domain.Document
+		var updateErr error
+
+		err := se.withDocumentWriteLock(collName, operation.ID, func() error {
+			updateDoc, updateErr = se.updateByIdUnsafe(collName, operation.ID, operation.Updates)
+			return updateErr
+		})
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to update document %s: %w", operation.ID, err)
+		}
+
+		result = append(result, updateDoc)
+	}
+
 	return result, nil
 }
 

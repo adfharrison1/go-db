@@ -1305,7 +1305,8 @@ func TestStorageEngine_FileOperationErrors(t *testing.T) {
 }
 
 func TestStorageEngine_CollectionStateTransitions(t *testing.T) {
-	engine := NewStorageEngine()
+	// Use transaction saves disabled to test manual state transitions
+	engine := NewStorageEngine(WithTransactionSave(false))
 	defer engine.StopBackgroundWorkers()
 
 	// Create collection
@@ -1548,7 +1549,7 @@ func TestStorageEngine_SaveDirtyCollections(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
-	engine := NewStorageEngine(WithDataDir(tempDir))
+	engine := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
 	defer engine.StopBackgroundWorkers()
 
 	// Create and populate collections
@@ -2010,27 +2011,27 @@ func TestStorageEngine_SaveCollectionAfterTransaction(t *testing.T) {
 	_, err = engine.Insert("test", doc)
 	require.NoError(t, err)
 
-	// Collection should be dirty after insert
+	// With transaction saves enabled, collection should be clean after insert (already saved)
 	engine.mu.RLock()
 	collInfo := engine.collections["test"]
-	isDirty := collInfo.State == CollectionStateDirty
+	isClean := collInfo.State == CollectionStateLoaded
 	engine.mu.RUnlock()
-	assert.True(t, isDirty, "Collection should be dirty after insert")
+	assert.True(t, isClean, "Collection should be clean after insert when transaction saves are enabled")
 
-	// Trigger transaction save
-	err = engine.SaveCollectionAfterTransaction("test")
-	require.NoError(t, err)
-
-	// Check that file was created
+	// Check that file was already created by the transaction save during insert
 	fileName := filepath.Join(tempDir, "collections", "test.godb")
 	assert.FileExists(t, fileName)
 
-	// Collection should be clean after save
+	// Trigger transaction save again (should be a no-op since collection is already clean)
+	err = engine.SaveCollectionAfterTransaction("test")
+	require.NoError(t, err)
+
+	// Collection should still be clean
 	engine.mu.RLock()
 	collInfo = engine.collections["test"]
-	isClean := collInfo.State == CollectionStateLoaded
+	isClean = collInfo.State == CollectionStateLoaded
 	engine.mu.RUnlock()
-	assert.True(t, isClean, "Collection should be clean after save")
+	assert.True(t, isClean, "Collection should remain clean after redundant save")
 }
 
 func TestStorageEngine_SaveCollectionAfterTransaction_Disabled(t *testing.T) {

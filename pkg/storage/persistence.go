@@ -293,7 +293,23 @@ func (se *StorageEngine) saveCollectionToFileUnsafe(collName string) error {
 	storageData := NewStorageData()
 	storageData.Collections[collName] = make(map[string]interface{})
 
+	// Take a safe snapshot of the documents map
+	// The collection write lock we're already holding should protect against structural changes
+	// but we need to be careful about concurrent map access from document operations
+	documentsCopy := make(map[string]domain.Document)
+
+	// Since we're holding a collection write lock, no new documents should be added/removed
+	// But individual documents might still be modified - we'll take a safe snapshot
 	for docID, doc := range cachedCollection.Documents {
+		// Create a deep copy of each document to avoid races on document content
+		docCopy := make(domain.Document)
+		for k, v := range doc {
+			docCopy[k] = v
+		}
+		documentsCopy[docID] = docCopy
+	}
+
+	for docID, doc := range documentsCopy {
 		storageData.Collections[collName][docID] = map[string]interface{}(doc)
 	}
 

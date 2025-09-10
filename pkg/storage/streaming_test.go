@@ -305,7 +305,8 @@ func TestStorageEngine_FindAllStream_DocumentModification(t *testing.T) {
 }
 
 func TestStorageEngine_FindAllStream_Performance(t *testing.T) {
-	engine := NewStorageEngine()
+	// Disable transaction saves for performance testing
+	engine := NewStorageEngine(WithTransactionSave(false))
 	defer engine.StopBackgroundWorkers()
 
 	// Insert test data
