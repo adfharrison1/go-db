@@ -22,7 +22,8 @@ func main() {
 		dataFile  = flag.String("data-file", "go-db_data.godb", "Data file path for persistence")
 		dataDir   = flag.String("data-dir", ".", "Data directory for storage")
 		maxMemory = flag.Int("max-memory", 1024, "Maximum memory usage in MB")
-		noSaves   = flag.Bool("no-saves", false, "Disable automatic disk writes (only save on shutdown)")
+		mode      = flag.String("mode", "dual-write", "Operation mode: dual-write, no-saves, memory-map")
+		noSaves   = flag.Bool("no-saves", false, "Disable automatic disk writes (only save on shutdown) [deprecated: use -mode]")
 		showHelp  = flag.Bool("help", false, "Show help message")
 	)
 
@@ -34,11 +35,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  %s                                    # Start with defaults (dual-write mode)\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s -port 9090 -max-memory 2048       # Custom port and memory\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  %s -no-saves                          # Disable automatic disk writes (shutdown only)\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -mode no-saves                     # No-saves mode (maximum performance)\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -mode memory-map                   # Memory-mapped mode (optimal for large datasets)\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s -data-dir /tmp/go-db              # Custom data directory\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "\nPersistence Options:\n")
-		fmt.Fprintf(os.Stderr, "  Dual-write mode: Data saved to memory and disk immediately (default)\n")
-		fmt.Fprintf(os.Stderr, "  No-saves mode: Data only saved on graceful shutdown (maximum performance)\n")
+		fmt.Fprintf(os.Stderr, "\nOperation Modes:\n")
+		fmt.Fprintf(os.Stderr, "  dual-write: Data saved to memory and disk immediately (default, maximum safety)\n")
+		fmt.Fprintf(os.Stderr, "  no-saves: Data only saved on graceful shutdown (maximum performance)\n")
+		fmt.Fprintf(os.Stderr, "  memory-map: Memory-mapped files for optimal performance with large datasets\n")
 	}
 
 	flag.Parse()
@@ -63,13 +66,28 @@ func main() {
 		log.Printf("INFO: Max memory set to: %d MB", *maxMemory)
 	}
 
-	// Set no-saves option
-	if *noSaves {
-		storageOptions = append(storageOptions, storage.WithNoSaves(true))
-		log.Printf("INFO: No-saves mode enabled - data only saved on shutdown")
-	} else {
-		log.Printf("INFO: Dual-write mode enabled - data saved to memory and disk immediately")
+	// Parse operation mode
+	var operationMode storage.OperationMode
+	switch *mode {
+	case "dual-write":
+		operationMode = storage.ModeDualWrite
+	case "no-saves":
+		operationMode = storage.ModeNoSaves
+	case "memory-map":
+		operationMode = storage.ModeMemoryMap
+	default:
+		log.Fatalf("ERROR: Invalid operation mode '%s'. Valid modes: dual-write, no-saves, memory-map", *mode)
 	}
+
+	// Handle deprecated -no-saves flag
+	if *noSaves && *mode == "dual-write" {
+		operationMode = storage.ModeNoSaves
+		log.Printf("WARNING: -no-saves flag is deprecated, use -mode no-saves instead")
+	}
+
+	// Set operation mode
+	storageOptions = append(storageOptions, storage.WithOperationMode(operationMode))
+	log.Printf("INFO: Operation mode: %s", operationMode.String())
 
 	// Create a new server with storage options
 	srv := server.NewServer(storageOptions...)

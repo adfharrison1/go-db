@@ -8,6 +8,29 @@ import (
 	"github.com/adfharrison1/go-db/pkg/indexing"
 )
 
+// OperationMode defines the storage engine operation mode
+type OperationMode int
+
+const (
+	ModeDualWrite OperationMode = iota // Default: Memory + immediate disk writes
+	ModeNoSaves                        // Memory-only, save on shutdown
+	ModeMemoryMap                      // Memory-mapped files for optimal performance
+)
+
+// String returns the string representation of the operation mode
+func (m OperationMode) String() string {
+	switch m {
+	case ModeDualWrite:
+		return "dual-write"
+	case ModeNoSaves:
+		return "no-saves"
+	case ModeMemoryMap:
+		return "memory-map"
+	default:
+		return "unknown"
+	}
+}
+
 // CollectionLock provides per-collection concurrency control
 type CollectionLock struct {
 	mu     sync.RWMutex
@@ -40,10 +63,12 @@ type StorageEngine struct {
 	docLocksMu    sync.RWMutex             // protects documentLocks map
 
 	// Configuration
-	maxMemoryMB int
-	dataDir     string
-	dataFile    string // Current data file for single-file persistence
-	noSaves     bool   // If true, only save on shutdown
+	maxMemoryMB   int
+	dataDir       string
+	dataFile      string        // Current data file for single-file persistence
+	operationMode OperationMode // Current operation mode
+	noSaves       bool          // If true, only save on shutdown (derived from operationMode)
+	useMemoryMap  bool          // If true, use memory-mapped files (derived from operationMode)
 
 	// Background workers
 	backgroundWg sync.WaitGroup
@@ -70,7 +95,9 @@ func NewStorageEngine(options ...StorageOption) *StorageEngine {
 		idCounters:      make(map[string]*int64),
 		maxMemoryMB:     1024, // 1GB default
 		dataDir:         ".",
-		noSaves:         false, // Default to dual-write mode
+		operationMode:   ModeDualWrite, // Default to dual-write mode
+		noSaves:         false,         // Derived from operationMode
+		useMemoryMap:    false,         // Derived from operationMode
 		stopChan:        make(chan struct{}),
 		diskWriteQueue:  make(chan DiskWriteRequest, 1000), // Buffer for failed writes
 	}
@@ -256,11 +283,25 @@ func (se *StorageEngine) queueDiskWrite(collection, docID string, doc domain.Doc
 	}
 }
 
+// GetOperationMode returns the current operation mode
+func (se *StorageEngine) GetOperationMode() OperationMode {
+	se.mu.RLock()
+	defer se.mu.RUnlock()
+	return se.operationMode
+}
+
 // IsNoSavesEnabled returns whether no-saves mode is enabled
 func (se *StorageEngine) IsNoSavesEnabled() bool {
 	se.mu.RLock()
 	defer se.mu.RUnlock()
 	return se.noSaves
+}
+
+// IsMemoryMapEnabled returns whether memory-mapped mode is enabled
+func (se *StorageEngine) IsMemoryMapEnabled() bool {
+	se.mu.RLock()
+	defer se.mu.RUnlock()
+	return se.useMemoryMap
 }
 
 // GetIndexEngine returns the index engine instance
