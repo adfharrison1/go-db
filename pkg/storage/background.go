@@ -2,7 +2,6 @@ package storage
 
 import (
 	"runtime"
-	"time"
 )
 
 // GetMemoryStats returns current memory usage statistics
@@ -20,36 +19,19 @@ func (se *StorageEngine) GetMemoryStats() map[string]interface{} {
 	}
 }
 
-// StartBackgroundWorkers starts background save workers
+// StartBackgroundWorkers starts background workers (disk write queue processing)
 func (se *StorageEngine) StartBackgroundWorkers() {
-	if !se.backgroundSave {
-		return
-	}
-
-	se.backgroundWg.Add(1)
-	go func() {
-		defer se.backgroundWg.Done()
-		ticker := time.NewTicker(se.saveInterval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				se.saveDirtyCollections()
-			case <-se.stopChan:
-				return
-			}
-		}
-	}()
+	// Background workers are now started automatically in NewStorageEngine
+	// This method is kept for compatibility but does nothing
 }
 
 // StopBackgroundWorkers stops background workers
 func (se *StorageEngine) StopBackgroundWorkers() {
-	select {
-	case <-se.stopChan:
-		// Channel already closed, do nothing
-	default:
+	se.stopOnce.Do(func() {
 		close(se.stopChan)
-	}
+		close(se.diskWriteQueue)
+	})
+
+	se.diskWriteWg.Wait()
 	se.backgroundWg.Wait()
 }

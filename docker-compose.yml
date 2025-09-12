@@ -6,6 +6,7 @@ services:
     volumes:
       - go-db-data:/app/data
     restart: unless-stopped
+    command: ['-data-dir', '/app/data', '-no-saves=false'] # Dual-write mode (default)
     healthcheck:
       test:
         [

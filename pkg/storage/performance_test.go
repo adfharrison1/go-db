@@ -44,7 +44,7 @@ func createIsolatedEngine(t *testing.T) *StorageEngine {
 	})
 
 	// Create engine with isolated temp directory and disabled transaction saves for performance
-	engine := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	engine := NewStorageEngine(WithDataDir(tempDir), WithNoSaves(true))
 
 	// Cleanup engine when test completes
 	t.Cleanup(func() {

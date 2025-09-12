@@ -39,7 +39,7 @@ func NewTestServer(t *testing.T, storageOptions ...storage.StorageOption) *TestS
 	// Default options for testing
 	defaultOptions := []storage.StorageOption{
 		storage.WithDataDir(tempDir),
-		storage.WithTransactionSave(true), // Enable transaction saves for testing
+		storage.WithNoSaves(false), // Enable dual-write mode for testing
 	}
 
 	// Merge with provided options
@@ -445,7 +445,7 @@ func TestAPI_Integration_TransactionSaves(t *testing.T) {
 
 func TestAPI_Integration_TransactionSavesDisabled(t *testing.T) {
 	// Create server with transaction saves disabled
-	ts := NewTestServer(t, storage.WithTransactionSave(false))
+	ts := NewTestServer(t, storage.WithNoSaves(true))
 	defer ts.Close(t)
 
 	t.Run("No Files Created When Transaction Saves Disabled", func(t *testing.T) {
@@ -505,7 +505,7 @@ func TestAPI_Integration_ErrorHandling(t *testing.T) {
 
 func TestAPI_Integration_ConcurrentRequests(t *testing.T) {
 	// Use transaction saves disabled to avoid lock contention in concurrent tests
-	ts := NewTestServer(t, storage.WithTransactionSave(false))
+	ts := NewTestServer(t, storage.WithNoSaves(true))
 	defer ts.Close(t)
 
 	t.Run("Concurrent Inserts", func(t *testing.T) {

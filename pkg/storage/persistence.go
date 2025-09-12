@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -356,5 +358,184 @@ func (se *StorageEngine) saveCollectionToFileUnsafe(collName string) error {
 	}
 
 	log.Printf("DEBUG: Saved collection %s (%d bytes compressed)", collName, len(compressedData))
+	return nil
+}
+
+// saveDocumentToDisk saves a single document to disk immediately
+func (se *StorageEngine) saveDocumentToDisk(collection, docID string, doc domain.Document) error {
+	// Ensure collection directory exists
+	collectionsDir := filepath.Join(se.dataDir, "collections")
+	if err := os.MkdirAll(collectionsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create collections directory: %w", err)
+	}
+
+	// Get the collection to check if it exists
+	se.mu.RLock()
+	_, exists := se.collections[collection]
+	if !exists {
+		se.mu.RUnlock()
+		return fmt.Errorf("collection %s does not exist", collection)
+	}
+	se.mu.RUnlock()
+
+	// Load existing collection data from disk
+	collectionFile := filepath.Join(collectionsDir, collection+".godb")
+	existingData := make(map[string]interface{})
+
+	if _, err := os.Stat(collectionFile); err == nil {
+		// File exists, load it
+		if err := se.loadCollectionFromFile(collectionFile, existingData); err != nil {
+			// If we can't load existing data, start fresh (this is normal during concurrent operations)
+			log.Printf("DEBUG: Could not load existing collection data for %s: %v", collection, err)
+		}
+	}
+
+	// Add/update the document in the existing data
+	existingData[docID] = map[string]interface{}(doc)
+
+	// Create storage data structure
+	storageData := NewStorageData()
+	storageData.Collections[collection] = existingData
+
+	// collectionFile is already defined above
+
+	// Serialize and compress
+	data, err := msgpack.Marshal(storageData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal collection data: %w", err)
+	}
+
+	// Compress with LZ4
+	compressedData := make([]byte, lz4.CompressBlockBound(len(data)))
+	n, err := lz4.CompressBlock(data, compressedData, nil)
+	if err != nil {
+		return fmt.Errorf("failed to compress collection data: %w", err)
+	}
+	compressedData = compressedData[:n]
+
+	// Create file with proper GODB header
+	var buf bytes.Buffer
+	header := &FileHeader{
+		Magic:   [4]byte{'G', 'O', 'D', 'B'},
+		Version: FormatVersion,
+		Flags:   0,
+	}
+
+	// Write header
+	if err := binary.Write(&buf, binary.LittleEndian, header); err != nil {
+		return fmt.Errorf("failed to write file header: %w", err)
+	}
+
+	// Write compressed data
+	if _, err := buf.Write(compressedData); err != nil {
+		return fmt.Errorf("failed to write compressed data: %w", err)
+	}
+
+	// Write to temporary file first, then rename (atomic operation)
+	tempFile := collectionFile + ".tmp"
+	if err := os.WriteFile(tempFile, buf.Bytes(), 0644); err != nil {
+		return fmt.Errorf("failed to write collection file: %w", err)
+	}
+
+	if err := os.Rename(tempFile, collectionFile); err != nil {
+		os.Remove(tempFile) // Clean up temp file
+		return fmt.Errorf("failed to rename collection file: %w", err)
+	}
+
+	// Update collection metadata
+	se.mu.Lock()
+	if info, exists := se.collections[collection]; exists {
+		info.State = CollectionStateLoaded
+		info.SizeOnDisk = int64(len(compressedData))
+	}
+	se.mu.Unlock()
+
+	return nil
+}
+
+// loadCollectionFromFile loads collection data from a file
+func (se *StorageEngine) loadCollectionFromFile(filename string, target map[string]interface{}) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+
+	// Check if file is empty
+	if len(data) == 0 {
+		return nil // Empty file, nothing to load
+	}
+
+	// Read and validate header
+	reader := bytes.NewReader(data)
+	_, err = ReadHeader(reader)
+	if err != nil {
+		// If header reading fails, try to read as old format (just compressed data)
+		// This handles backward compatibility
+		return se.loadCollectionFromFileLegacy(data, target)
+	}
+
+	// Read compressed data after header
+	compressedData := make([]byte, reader.Len())
+	if _, err := reader.Read(compressedData); err != nil {
+		return fmt.Errorf("failed to read compressed data: %w", err)
+	}
+
+	// Check if compressed data is too small for LZ4
+	if len(compressedData) < 4 {
+		return fmt.Errorf("compressed data too small for LZ4 decompression")
+	}
+
+	// Decompress
+	decompressedData := make([]byte, len(compressedData)*4) // Start with 4x size
+	n, err := lz4.UncompressBlock(compressedData, decompressedData)
+	if err != nil {
+		return fmt.Errorf("failed to decompress collection data: %w", err)
+	}
+	decompressedData = decompressedData[:n]
+
+	// Unmarshal
+	var storageData StorageData
+	if err := msgpack.Unmarshal(decompressedData, &storageData); err != nil {
+		return fmt.Errorf("failed to unmarshal collection data: %w", err)
+	}
+
+	// Extract collection data
+	for _, collData := range storageData.Collections {
+		for docID, docData := range collData {
+			target[docID] = docData
+		}
+	}
+
+	return nil
+}
+
+// loadCollectionFromFileLegacy loads collection data from old format files (without header)
+func (se *StorageEngine) loadCollectionFromFileLegacy(data []byte, target map[string]interface{}) error {
+	// Check if data is too small for LZ4
+	if len(data) < 4 {
+		return fmt.Errorf("data too small for LZ4 decompression")
+	}
+
+	// Decompress
+	decompressedData := make([]byte, len(data)*4) // Start with 4x size
+	n, err := lz4.UncompressBlock(data, decompressedData)
+	if err != nil {
+		return fmt.Errorf("failed to decompress collection data: %w", err)
+	}
+	decompressedData = decompressedData[:n]
+
+	// Unmarshal
+	var storageData StorageData
+	if err := msgpack.Unmarshal(decompressedData, &storageData); err != nil {
+		return fmt.Errorf("failed to unmarshal collection data: %w", err)
+	}
+
+	// Extract collection data
+	for _, collData := range storageData.Collections {
+		for docID, docData := range collData {
+			target[docID] = docData
+		}
+	}
+
 	return nil
 }

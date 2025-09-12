@@ -26,7 +26,7 @@ type StorageEngine interface {
 	StartBackgroundWorkers()
 	StopBackgroundWorkers()
 	SaveCollectionAfterTransaction(collName string) error
-	IsTransactionSaveEnabled() bool
+	IsNoSavesEnabled() bool
 	GetIndexes(collName string) ([]string, error)
 	CreateIndex(collName, fieldName string) error
 }

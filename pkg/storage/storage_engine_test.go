@@ -24,10 +24,9 @@ func TestNewStorageEngine(t *testing.T) {
 			name:    "default options",
 			options: []StorageOption{},
 			expected: &StorageEngine{
-				maxMemoryMB:    1024,
-				dataDir:        ".",
-				backgroundSave: false,
-				saveInterval:   5 * time.Minute,
+				maxMemoryMB: 1024,
+				dataDir:     ".",
+				noSaves:     false,
 			},
 		},
 		{
@@ -35,13 +34,12 @@ func TestNewStorageEngine(t *testing.T) {
 			options: []StorageOption{
 				WithMaxMemory(2048),
 				WithDataDir("/tmp"),
-				WithBackgroundSave(1 * time.Minute),
+				WithNoSaves(true),
 			},
 			expected: &StorageEngine{
-				maxMemoryMB:    2048,
-				dataDir:        "/tmp",
-				backgroundSave: true,
-				saveInterval:   1 * time.Minute,
+				maxMemoryMB: 2048,
+				dataDir:     "/tmp",
+				noSaves:     true,
 			},
 		},
 	}
@@ -52,8 +50,7 @@ func TestNewStorageEngine(t *testing.T) {
 
 			assert.Equal(t, tt.expected.maxMemoryMB, engine.maxMemoryMB)
 			assert.Equal(t, tt.expected.dataDir, engine.dataDir)
-			assert.Equal(t, tt.expected.backgroundSave, engine.backgroundSave)
-			assert.Equal(t, tt.expected.saveInterval, engine.saveInterval)
+			assert.Equal(t, tt.expected.noSaves, engine.noSaves)
 			assert.NotNil(t, engine.cache)
 			assert.NotNil(t, engine.collections)
 			assert.NotNil(t, engine.indexEngine)
@@ -193,7 +190,7 @@ func TestStorageEngine_MemoryStats(t *testing.T) {
 }
 
 func TestStorageEngine_BackgroundWorkers(t *testing.T) {
-	engine := NewStorageEngine(WithBackgroundSave(100 * time.Millisecond))
+	engine := NewStorageEngine(WithNoSaves(false))
 
 	// Start background workers
 	engine.StartBackgroundWorkers()
@@ -978,8 +975,8 @@ func TestStorageEngine_UpdateIndex(t *testing.T) {
 }
 
 func TestStorageEngine_BackgroundSave(t *testing.T) {
-	// Create engine with background save enabled
-	engine := NewStorageEngine(WithBackgroundSave(100 * time.Millisecond))
+	// Create engine with dual-write mode enabled
+	engine := NewStorageEngine(WithNoSaves(false))
 	defer engine.StopBackgroundWorkers()
 
 	// Start background workers
@@ -1016,7 +1013,7 @@ func TestStorageEngine_BackgroundSave(t *testing.T) {
 }
 
 func TestStorageEngine_BackgroundWorkersMultipleStarts(t *testing.T) {
-	engine := NewStorageEngine(WithBackgroundSave(100 * time.Millisecond))
+	engine := NewStorageEngine(WithNoSaves(false))
 	defer engine.StopBackgroundWorkers()
 
 	// Start background workers multiple times (should be safe)
@@ -1306,7 +1303,7 @@ func TestStorageEngine_FileOperationErrors(t *testing.T) {
 
 func TestStorageEngine_CollectionStateTransitions(t *testing.T) {
 	// Use transaction saves disabled to test manual state transitions
-	engine := NewStorageEngine(WithTransactionSave(false))
+	engine := NewStorageEngine(WithNoSaves(false))
 	defer engine.StopBackgroundWorkers()
 
 	// Create collection
@@ -1320,17 +1317,17 @@ func TestStorageEngine_CollectionStateTransitions(t *testing.T) {
 	assert.True(t, exists)
 	assert.Equal(t, CollectionStateLoaded, info.State)
 
-	// Insert document to make it dirty
+	// Insert document - with dual-write, this should immediately save and keep collection clean
 	doc := domain.Document{"name": "Alice"}
 	_, err = engine.Insert("users", doc)
 	require.NoError(t, err)
 
-	// Verify state changed to dirty
+	// Verify state remains clean due to dual-write
 	engine.mu.RLock()
 	info, exists = engine.collections["users"]
 	engine.mu.RUnlock()
 	assert.True(t, exists)
-	assert.Equal(t, CollectionStateDirty, info.State)
+	assert.Equal(t, CollectionStateLoaded, info.State)
 
 	// Save to file
 	tempFile := "test_state.godb"
@@ -1549,7 +1546,7 @@ func TestStorageEngine_SaveDirtyCollections(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
-	engine := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	engine := NewStorageEngine(WithDataDir(tempDir), WithNoSaves(false))
 	defer engine.StopBackgroundWorkers()
 
 	// Create and populate collections
@@ -1578,19 +1575,19 @@ func TestStorageEngine_SaveDirtyCollections(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Both collections should be dirty
+	// With dual-write, collections should be clean after insert
 	engine.mu.RLock()
 	usersInfo := engine.collections["users"]
 	productsInfo := engine.collections["products"]
 	engine.mu.RUnlock()
 
-	assert.Equal(t, CollectionStateDirty, usersInfo.State)
-	assert.Equal(t, CollectionStateDirty, productsInfo.State)
+	assert.Equal(t, CollectionStateLoaded, usersInfo.State)
+	assert.Equal(t, CollectionStateLoaded, productsInfo.State)
 
-	// Call saveDirtyCollections
+	// Call saveDirtyCollections (should be no-op since collections are already clean)
 	engine.saveDirtyCollections()
 
-	// Both collections should now be clean
+	// Both collections should still be clean
 	engine.mu.RLock()
 	usersInfo = engine.collections["users"]
 	productsInfo = engine.collections["products"]
@@ -1836,7 +1833,7 @@ func TestStorageEngine_BackgroundSaveIntegration(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	engine := NewStorageEngine(
-		WithBackgroundSave(100*time.Millisecond),
+		WithNoSaves(false),
 		WithDataDir(tempDir),
 	)
 	defer engine.StopBackgroundWorkers()
@@ -1882,17 +1879,17 @@ func TestStorageEngine_BackgroundSaveIntegration(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Collection should be dirty again
+	// With dual-write, collection should remain clean after insert
 	engine.mu.RLock()
 	usersInfo = engine.collections["users"]
 	engine.mu.RUnlock()
 
-	assert.Equal(t, CollectionStateDirty, usersInfo.State)
+	assert.Equal(t, CollectionStateLoaded, usersInfo.State)
 
-	// Wait for another background save
+	// Wait a bit to ensure no background operations are needed
 	time.Sleep(200 * time.Millisecond)
 
-	// Collection should be clean again
+	// Collection should still be clean
 	engine.mu.RLock()
 	usersInfo = engine.collections["users"]
 	engine.mu.RUnlock()
@@ -1972,23 +1969,23 @@ func TestStorageEngine_TransactionSaveEnabled(t *testing.T) {
 	engine := NewStorageEngine()
 	defer engine.StopBackgroundWorkers()
 
-	assert.True(t, engine.IsTransactionSaveEnabled(), "Transaction saves should be enabled by default")
+	assert.False(t, engine.IsNoSavesEnabled(), "No-saves should be disabled by default (dual-write mode)")
 }
 
 func TestStorageEngine_TransactionSaveDisabled(t *testing.T) {
-	// Test with transaction saves explicitly disabled
-	engine := NewStorageEngine(WithTransactionSave(false))
+	// Test with dual-write mode enabled (default)
+	engine := NewStorageEngine(WithNoSaves(false))
 	defer engine.StopBackgroundWorkers()
 
-	assert.False(t, engine.IsTransactionSaveEnabled(), "Transaction saves should be disabled when set to false")
+	assert.False(t, engine.IsNoSavesEnabled(), "No-saves should be disabled in dual-write mode")
 }
 
 func TestStorageEngine_BackgroundSaveDisablesTransactionSave(t *testing.T) {
-	// Test that background saves disable transaction saves
-	engine := NewStorageEngine(WithBackgroundSave(5 * time.Second))
+	// Test that no-saves mode disables automatic saves
+	engine := NewStorageEngine(WithNoSaves(true))
 	defer engine.StopBackgroundWorkers()
 
-	assert.False(t, engine.IsTransactionSaveEnabled(), "Transaction saves should be disabled when background saves are enabled")
+	assert.True(t, engine.IsNoSavesEnabled(), "No-saves should be enabled when set to true")
 }
 
 func TestStorageEngine_SaveCollectionAfterTransaction(t *testing.T) {
@@ -1996,10 +1993,10 @@ func TestStorageEngine_SaveCollectionAfterTransaction(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
-	// Create engine with transaction saves enabled
+	// Create engine with dual-write mode (default)
 	engine := NewStorageEngine(
 		WithDataDir(tempDir),
-		WithTransactionSave(true),
+		WithNoSaves(false),
 	)
 	defer engine.StopBackgroundWorkers()
 
@@ -2039,10 +2036,10 @@ func TestStorageEngine_SaveCollectionAfterTransaction_Disabled(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
-	// Create engine with transaction saves disabled
+	// Create engine with no-saves mode (no automatic disk writes)
 	engine := NewStorageEngine(
 		WithDataDir(tempDir),
-		WithTransactionSave(false),
+		WithNoSaves(true),
 	)
 	defer engine.StopBackgroundWorkers()
 
@@ -2077,7 +2074,7 @@ func TestStorageEngine_SaveCollectionAfterTransaction_NonDirtyCollection(t *test
 
 	engine := NewStorageEngine(
 		WithDataDir(tempDir),
-		WithTransactionSave(true),
+		WithNoSaves(true),
 	)
 	defer engine.StopBackgroundWorkers()
 
@@ -2100,7 +2097,7 @@ func TestStorageEngine_SaveCollectionAfterTransaction_NonDirtyCollection(t *test
 }
 
 func TestStorageEngine_SaveCollectionAfterTransaction_NonExistentCollection(t *testing.T) {
-	engine := NewStorageEngine(WithTransactionSave(true))
+	engine := NewStorageEngine(WithNoSaves(true))
 	defer engine.StopBackgroundWorkers()
 
 	// Try to save non-existent collection - should do nothing
@@ -2671,11 +2668,11 @@ func TestStorageEngine_BatchInsert(t *testing.T) {
 		_, err := engine.BatchInsert("products", docs)
 		require.NoError(t, err)
 
-		// Check collection state is dirty
+		// Check collection state is clean (dual-write saves immediately)
 		engine.mu.RLock()
 		collInfo, exists := engine.collections["products"]
 		require.True(t, exists)
-		assert.Equal(t, CollectionStateDirty, collInfo.State)
+		assert.Equal(t, CollectionStateLoaded, collInfo.State)
 		assert.Equal(t, int64(2), collInfo.DocumentCount)
 		engine.mu.RUnlock()
 	})
@@ -2918,14 +2915,14 @@ func TestStorageEngine_BatchOperations_WithIndexes(t *testing.T) {
 	})
 }
 
-func TestStorageEngine_BatchOperations_WithTransactionSaves(t *testing.T) {
+func TestStorageEngine_BatchOperations_WithNoSavess(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "go-db-batch-save-test-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
 	engine := NewStorageEngine(
 		WithDataDir(tempDir),
-		WithTransactionSave(true),
+		WithNoSaves(true),
 	)
 	defer engine.StopBackgroundWorkers()
 
@@ -2945,18 +2942,18 @@ func TestStorageEngine_BatchOperations_WithTransactionSaves(t *testing.T) {
 		assert.Equal(t, CollectionStateDirty, collInfo.State)
 		engine.mu.RUnlock()
 
-		// Trigger save
+		// Trigger save (should be no-op in no-saves mode)
 		err = engine.SaveCollectionAfterTransaction("test_saves")
 		require.NoError(t, err)
 
-		// Check file exists
+		// Check file does NOT exist (no-saves mode)
 		saveFile := filepath.Join(tempDir, "collections", "test_saves.godb")
-		assert.FileExists(t, saveFile)
+		assert.NoFileExists(t, saveFile)
 
-		// Check collection is now clean
+		// Check collection remains dirty (no-saves mode)
 		engine.mu.RLock()
 		collInfo, _ = engine.collections["test_saves"]
-		assert.Equal(t, CollectionStateLoaded, collInfo.State)
+		assert.Equal(t, CollectionStateDirty, collInfo.State)
 		engine.mu.RUnlock()
 	})
 

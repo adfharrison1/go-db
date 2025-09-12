@@ -226,7 +226,7 @@ func TestStorageEngine_LoadCollectionFromDisk(t *testing.T) {
 	tempFile := filepath.Join(tempDir, "test_load_collection.godb")
 
 	// Create engine and save data (disable transaction saves to test monolithic vs per-collection loading)
-	engine1 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	engine1 := NewStorageEngine(WithDataDir(tempDir), WithNoSaves(true))
 	defer engine1.StopBackgroundWorkers()
 
 	// Insert test data
@@ -330,7 +330,7 @@ func TestStorageEngine_SaveDirtyCollections_FileOperations(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
-	engine := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	engine := NewStorageEngine(WithDataDir(tempDir), WithNoSaves(true))
 	defer engine.StopBackgroundWorkers()
 
 	// Create multiple collections with different data
@@ -493,7 +493,7 @@ func TestStorageEngine_SaveDirtyCollections_EmptyCollections(t *testing.T) {
 
 func TestStorageEngine_SaveCollectionToFile_ErrorHandling(t *testing.T) {
 	// Disable transaction saves to test manual save error handling
-	engine := NewStorageEngine(WithDataDir("/invalid/path/that/does/not/exist"), WithTransactionSave(false))
+	engine := NewStorageEngine(WithDataDir("/invalid/path/that/does/not/exist"), WithNoSaves(true))
 	defer engine.StopBackgroundWorkers()
 
 	// Create collection
@@ -643,7 +643,7 @@ func TestStorageEngine_IDCounterRestoration(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Phase 1: Create collection with documents and save to disk
-	engine1 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	engine1 := NewStorageEngine(WithDataDir(tempDir), WithNoSaves(true))
 	defer engine1.StopBackgroundWorkers()
 
 	// Insert documents with sequential IDs
@@ -664,7 +664,7 @@ func TestStorageEngine_IDCounterRestoration(t *testing.T) {
 	engine1.saveDirtyCollections()
 
 	// Phase 2: Create new engine instance and load collection from disk
-	engine2 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	engine2 := NewStorageEngine(WithDataDir(tempDir), WithNoSaves(true))
 	defer engine2.StopBackgroundWorkers()
 
 	// Since we're using per-collection saves, manually add collection info
@@ -718,7 +718,7 @@ func TestStorageEngine_IDCounterRestoration_NonSequential(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Phase 1: Simulate a collection that had some documents deleted
-	engine1 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	engine1 := NewStorageEngine(WithDataDir(tempDir), WithNoSaves(true))
 	defer engine1.StopBackgroundWorkers()
 
 	// Create collection manually and add documents with gaps
@@ -743,7 +743,7 @@ func TestStorageEngine_IDCounterRestoration_NonSequential(t *testing.T) {
 	engine1.saveDirtyCollections()
 
 	// Phase 2: Load in new engine - should restore counter to highest ID (15)
-	engine2 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	engine2 := NewStorageEngine(WithDataDir(tempDir), WithNoSaves(true))
 	defer engine2.StopBackgroundWorkers()
 
 	// Manually add collection info for per-collection loading
@@ -778,7 +778,7 @@ func TestStorageEngine_IDCounterRestoration_EmptyCollection(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Phase 1: Create empty collection and save
-	engine1 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	engine1 := NewStorageEngine(WithDataDir(tempDir), WithNoSaves(true))
 	defer engine1.StopBackgroundWorkers()
 
 	err = engine1.CreateCollection("empty")
@@ -794,7 +794,7 @@ func TestStorageEngine_IDCounterRestoration_EmptyCollection(t *testing.T) {
 	engine1.saveDirtyCollections()
 
 	// Phase 2: Load in new engine
-	engine2 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	engine2 := NewStorageEngine(WithDataDir(tempDir), WithNoSaves(true))
 	defer engine2.StopBackgroundWorkers()
 
 	// Manually add collection info for per-collection loading
@@ -830,7 +830,7 @@ func TestStorageEngine_IDCounterRestoration_NonNumericIDs(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Phase 1: Create collection with mixed numeric and non-numeric IDs
-	engine1 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	engine1 := NewStorageEngine(WithDataDir(tempDir), WithNoSaves(true))
 	defer engine1.StopBackgroundWorkers()
 
 	err = engine1.CreateCollection("mixed")
@@ -854,7 +854,7 @@ func TestStorageEngine_IDCounterRestoration_NonNumericIDs(t *testing.T) {
 	engine1.saveDirtyCollections()
 
 	// Phase 2: Load in new engine - should restore counter to highest numeric ID (10)
-	engine2 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	engine2 := NewStorageEngine(WithDataDir(tempDir), WithNoSaves(true))
 	defer engine2.StopBackgroundWorkers()
 
 	// Manually add collection info for per-collection loading
@@ -898,7 +898,7 @@ func TestStorageEngine_IDCounterRestoration_BatchOperations(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Phase 1: Create collection with batch insert and save
-	engine1 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	engine1 := NewStorageEngine(WithDataDir(tempDir), WithNoSaves(true))
 	defer engine1.StopBackgroundWorkers()
 
 	docs := make([]domain.Document, 10)
@@ -913,7 +913,7 @@ func TestStorageEngine_IDCounterRestoration_BatchOperations(t *testing.T) {
 	engine1.saveDirtyCollections()
 
 	// Phase 2: Load in new engine and continue with batch operations
-	engine2 := NewStorageEngine(WithDataDir(tempDir), WithTransactionSave(false))
+	engine2 := NewStorageEngine(WithDataDir(tempDir), WithNoSaves(true))
 	defer engine2.StopBackgroundWorkers()
 
 	// Manually add collection info for per-collection loading

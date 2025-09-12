@@ -138,50 +138,51 @@ k6 run streaming-test.js
 
 #### 5. Configuration Comparison Testing
 
-**Comprehensive Configuration Testing:**
+**Configuration Testing:**
 
-We provide automated testing of different database configurations to help you choose the right setup for your use case.
+We provide testing of different database configurations to help you choose the right setup for your use case.
 
 **Available Test Configurations:**
 
-| Configuration     | Transaction Saves | Background Saves | Throughput  | P95 Latency | Success Rate | Best For                                    |
-| ----------------- | ----------------- | ---------------- | ----------- | ----------- | ------------ | ------------------------------------------- |
-| **Transaction**   | ✅ Enabled        | ❌ Disabled      | 70.8 req/s  | 3.46s       | 100%         | Production systems requiring zero data loss |
-| **Background 1s** | ❌ Disabled       | ✅ Every 1s      | 514.8 req/s | 104ms       | 72.5%        | Web applications, development environments  |
-| **Background 5s** | ❌ Disabled       | ✅ Every 5s      | 480.2 req/s | 35ms        | 49.1%        | High-performance, fault-tolerant systems    |
-| **No Saves**      | ❌ Disabled       | ❌ Disabled      | 487.8 req/s | 45ms        | 49.2%        | Caching, temporary data, benchmarking       |
+| Configuration  | Mode          | Throughput | P95 Latency | Success Rate | Best For                                    |
+| -------------- | ------------- | ---------- | ----------- | ------------ | ------------------------------------------- |
+| **Dual-Write** | Memory + Disk | ~84 req/s  | ~3.76s      | 100%         | Production systems requiring zero data loss |
+| **No-Saves**   | Memory Only   | ~299 req/s | ~445ms      | 100%         | Caching, temporary data, benchmarking       |
 
 **📊 Performance Insights:**
 
-- **7.3x throughput improvement** with background saves vs transaction saves
-- **97-99% latency reduction** in non-transaction modes
-- **Success rate trade-offs** due to eventual consistency (404 errors on recently created documents)
-- **Background 1s saves offer the best balance** of performance (514.8 req/s) and reliability (72.5% success rate)
+- **Dual-write mode** provides maximum data safety with immediate disk persistence (~84 req/s, ~3.76s P95)
+- **No-saves mode** provides maximum performance with memory-only operations (~299 req/s, ~445ms P95)
+- **100% success rate** in both modes (no eventual consistency issues)
+- **Background retry queue** handles failed disk writes automatically in dual-write mode
+- **3.6x throughput improvement** in no-saves mode vs dual-write mode
+- **8.4x latency improvement** in no-saves mode vs dual-write mode
 
 **Quick Single Configuration Test:**
 
 ```bash
-# Test transaction saves (default)
-docker-compose -f ../docker-compose-configs.yml up -d go-db-transaction
+# Test dual-write mode (default)
+docker-compose up -d
 k6 run stress-test-optimized.js
-docker-compose -f ../docker-compose-configs.yml down -v
+docker-compose down -v
 
-# Test background saves (1 second)
-docker-compose -f ../docker-compose-configs.yml up -d go-db-background-1s
+# Test no-saves mode (maximum performance)
+docker-compose run --rm go-db -no-saves -port 8080 &
 k6 run stress-test-optimized.js
-docker-compose -f ../docker-compose-configs.yml down -v
-
-# Test no saves (pure performance)
-docker-compose -f ../docker-compose-configs.yml up -d go-db-no-saves
-k6 run stress-test-optimized.js
-docker-compose -f ../docker-compose-configs.yml down -v
+docker-compose down
 ```
 
-**Automated Full Comparison:**
+**Manual Testing:**
 
 ```bash
-# Run all configurations automatically (takes ~20 minutes)
-./compare-configs.sh
+# Start dual-write mode
+docker-compose up -d
+
+# Run stress test
+k6 run stress-test-optimized.js
+
+# Stop and clean up
+docker-compose down -v
 ```
 
 **What the comparison script does:**

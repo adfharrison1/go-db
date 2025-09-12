@@ -59,147 +59,98 @@ go run cmd/go-db.go -help
 
 ### Available Options
 
-| Flag                | Default           | Description                                  |
-| ------------------- | ----------------- | -------------------------------------------- |
-| `-port`             | `8080`            | Server port                                  |
-| `-data-file`        | `go-db_data.godb` | Data file path for persistence               |
-| `-data-dir`         | `.`               | Data directory for storage                   |
-| `-max-memory`       | `1024`            | Maximum memory usage in MB                   |
-| `-background-save`  | `0` (disabled)    | Background save interval (e.g., `5m`, `30s`) |
-| `-transaction-save` | `true`            | Save to disk after every write transaction   |
-| `-help`             | `false`           | Show help message                            |
+| Flag          | Default           | Description                                   |
+| ------------- | ----------------- | --------------------------------------------- |
+| `-port`       | `8080`            | Server port                                   |
+| `-data-file`  | `go-db_data.godb` | Data file path for persistence                |
+| `-data-dir`   | `.`               | Data directory for storage                    |
+| `-max-memory` | `1024`            | Maximum memory usage in MB                    |
+| `-no-saves`   | `false`           | Disable automatic disk writes (shutdown only) |
+| `-help`       | `false`           | Show help message                             |
 
 ### Data Safety & Performance Modes
 
-GO-DB offers different operational modes that balance **data safety** vs **performance** based on your requirements.
+GO-DB offers two operational modes that balance **data safety** vs **performance** based on your requirements.
 
-#### 🔒 **Transaction Saves Mode (Default - Maximum Safety)**
+#### 🔒 **Dual-Write Mode (Default - Maximum Safety)**
 
 **Configuration:**
 
 ```bash
-# Default behavior - transaction saves enabled
+# Default behavior - dual-write mode enabled
 go run cmd/go-db.go
 
 # Docker
-docker-compose up  # Uses transaction saves by default
+docker-compose up  # Uses dual-write mode by default
 ```
 
 **Characteristics:**
 
-- ✅ **Immediate Persistence**: Every write operation saves to disk
+- ✅ **Immediate Persistence**: Every write operation saves to memory AND disk immediately
 - ✅ **Zero Data Loss**: Guaranteed data consistency across restarts
-- ✅ **ACID Compliance**: Full transactional integrity
-- ⚠️ **Lower Throughput**: Disk I/O limits performance under high load
+- ✅ **100% Success Rate**: No eventual consistency issues
+- ✅ **Background Retry**: Failed disk writes are queued and retried automatically
+- ⚠️ **Disk I/O Overhead**: Each write operation includes disk I/O
 
-**Performance Metrics** (100 concurrent users, 5-minute stress test):
+**Performance Metrics** (100 concurrent users, 1m45s stress test):
 
-- **Throughput**: 70.8 requests/second
-- **P95 Response Time**: 3.46s
-- **Average Response Time**: 805ms
+- **Throughput**: ~84 requests/second
+- **P95 Response Time**: ~3.76s
+- **Average Response Time**: ~668ms
 - **Success Rate**: 100% (zero failures)
-- **Use Case**: Production systems requiring immediate persistence and zero data loss
+- **Use Case**: Production systems, critical data, financial applications
 
-#### ⚡ **High-Throughput Mode (Optimized Performance)**
+#### ⚡ **No-Saves Mode (Maximum Performance)**
 
 **Configuration:**
 
 ```bash
-# ⚠️ WARNING: No automatic saves - data only saved on graceful shutdown
-go run cmd/go-db.go -transaction-save=false
+# No automatic saves - data only saved on graceful shutdown
+go run cmd/go-db.go -no-saves
 
-# 🔧 RECOMMENDED: Add periodic saves for data safety
-go run cmd/go-db.go -transaction-save=false -background-save=5m
-
-# Docker (no automatic saves)
-docker-compose run --rm go-db -transaction-save=false -port 8080
+# Docker
+docker-compose run --rm go-db -no-saves -port 8080
 ```
 
 **Characteristics:**
 
-- 🚀 **Maximum Performance**: No disk I/O bottlenecks
+- 🚀 **Maximum Performance**: No disk I/O during operations
 - 📈 **High Concurrency**: Excellent scaling under load
-- ⚠️ **HIGH Data Loss Risk**: Data only saved on graceful shutdown (SIGINT/SIGTERM)
-- 🔄 **Manual Configuration**: Must explicitly add `-background-save` for any automatic persistence
+- ⚠️ **Data Loss Risk**: Data only saved on graceful shutdown (SIGINT/SIGTERM)
+- 🔄 **Memory Only**: All operations happen in memory
 
-**Performance Metrics** (100 concurrent users, 5-minute stress test):
+**Performance Metrics** (100 concurrent users, 1m45s stress test):
 
-- **Throughput**: 487.8 requests/second (**6.9x higher**)
-- **P95 Response Time**: 45ms (**98.7% faster**)
-- **Average Response Time**: 10ms (**98.8% faster**)
-- **Success Rate**: 49.2% (eventual consistency issues)
-- **Use Case**: Caching layers, temporary analytics, testing environments (combine with `-background-save` for production)
-
-#### 🕐 **Background Saves Mode (Balanced Approach)**
-
-**Configuration:**
-
-```bash
-# Auto-save every 5 minutes (disables transaction saves)
-go run cmd/go-db.go -background-save 5m
-
-# Auto-save every 30 seconds
-go run cmd/go-db.go -background-save 30s
-```
-
-**Characteristics:**
-
-- ⚖️ **Balanced Performance**: Good throughput with periodic persistence
-- 🛡️ **Limited Data Loss**: Only lose data since last background save
-- ⏰ **Configurable Safety**: Adjust save interval based on requirements
-- 🔄 **Automatic**: No manual intervention required
-
-**Performance Metrics** (100 concurrent users, 5-minute stress test):
-
-**Background Saves (1s interval):**
-
-- **Throughput**: 514.8 requests/second (**7.3x higher than transaction saves**)
-- **P95 Response Time**: 104ms (**97% faster**)
-- **Average Response Time**: 23ms (**97.1% faster**)
-- **Success Rate**: 72.5% (some eventual consistency issues)
-
-**Background Saves (5s interval):**
-
-- **Throughput**: 480.2 requests/second (**6.8x higher than transaction saves**)
-- **P95 Response Time**: 35ms (**99% faster**)
-- **Average Response Time**: 8ms (**99% faster**)
-- **Success Rate**: 49.1% (more eventual consistency issues)
-
-**Use Case**: Applications that can tolerate small amounts of data loss and occasional read inconsistencies for significantly better performance
+- **Throughput**: ~299 requests/second
+- **P95 Response Time**: ~445ms
+- **Average Response Time**: ~112ms
+- **Success Rate**: 100% (memory operations)
+- **Use Case**: Caching layers, temporary analytics, high-performance scenarios
 
 #### 📊 **Mode Comparison Summary**
 
-| Mode                  | Throughput  | P95 Latency | Success Rate | Data Safety | Best For                         |
-| --------------------- | ----------- | ----------- | ------------ | ----------- | -------------------------------- |
-| **Transaction Saves** | 70.8 req/s  | 3.46s       | 100%         | Maximum     | Financial systems, critical data |
-| **Background 1s**     | 514.8 req/s | 104ms       | 72.5%        | High        | Web applications, development    |
-| **Background 5s**     | 480.2 req/s | 35ms        | 49.1%        | Medium      | High-performance, fault-tolerant |
-| **No Auto Saves**     | 487.8 req/s | 45ms        | 49.2%        | Minimal     | Caching, temporary analytics     |
-
-**⚠️ Success Rate Notes:** Lower success rates in background/no-save modes are due to eventual consistency - read operations may encounter 404 errors when accessing recently created documents that haven't been persisted yet. This is expected behavior in high-throughput, eventually consistent systems.
+| Mode           | Throughput | P95 Latency | Success Rate | Data Safety | Best For                    |
+| -------------- | ---------- | ----------- | ------------ | ----------- | --------------------------- |
+| **Dual-Write** | ~84 req/s  | ~3.76s      | 100%         | Maximum     | Production, critical data   |
+| **No-Saves**   | ~299 req/s | ~445ms      | 100%         | Minimal     | Caching, analytics, testing |
 
 #### 🎯 **Choosing the Right Mode**
 
-**Use Transaction Saves when:**
+**Use Dual-Write Mode when:**
 
 - Data loss is unacceptable
 - Financial or critical business data
+- Production systems
 - Regulatory compliance requirements
-- Low to medium throughput requirements
+- You need immediate persistence
 
-**Use High-Throughput Mode when:**
+**Use No-Saves Mode when:**
 
 - Maximum performance is critical
 - Data can be recreated from other sources
 - Analytics and reporting workloads
-- Real-time applications with external persistence
-
-**Use Background Saves when:**
-
-- Balanced performance and safety needs
-- Web applications with user-generated content
-- Systems that can tolerate minimal data loss
-- Development and testing environments
+- Caching scenarios
+- Testing and development environments
 
 ## Batch Operations
 
@@ -725,28 +676,25 @@ For development, testing, or performance evaluation, you can use different confi
 
 **Available Configurations:**
 
-| Configuration              | Command                                                                  | Transaction Saves | Background Saves | Best For                          |
-| -------------------------- | ------------------------------------------------------------------------ | ----------------- | ---------------- | --------------------------------- |
-| **Production**             | `docker-compose up -d`                                                   | ✅ Enabled        | ❌ Disabled      | Production, data safety           |
-| **Transaction Testing**    | `docker-compose -f docker-compose-configs.yml up -d go-db-transaction`   | ✅ Enabled        | ❌ Disabled      | Transaction save testing          |
-| **Balanced (1s saves)**    | `docker-compose -f docker-compose-configs.yml up -d go-db-background-1s` | ❌ Disabled       | ✅ Every 1s      | Development, balanced performance |
-| **Performance (5s saves)** | `docker-compose -f docker-compose-configs.yml up -d go-db-background-5s` | ❌ Disabled       | ✅ Every 5s      | High-performance scenarios        |
-| **Pure Performance**       | `docker-compose -f docker-compose-configs.yml up -d go-db-no-saves`      | ❌ Disabled       | ❌ Disabled      | Benchmarking, caching             |
+| Configuration           | Command                                              | Mode       | Best For                  |
+| ----------------------- | ---------------------------------------------------- | ---------- | ------------------------- |
+| **Production**          | `docker-compose up -d`                               | Dual-Write | Production, data safety   |
+| **Performance Testing** | `docker-compose run --rm go-db -no-saves -port 8080` | No-Saves   | High-performance, caching |
 
 **Examples:**
 
 ```bash
-# Development with balanced performance (1-second saves)
-docker-compose -f docker-compose-configs.yml up -d go-db-background-1s
+# Production mode (dual-write, maximum safety)
+docker-compose up -d
 
-# High-performance testing (5-second saves)
-docker-compose -f docker-compose-configs.yml up -d go-db-background-5s
+# High-performance testing (no-saves mode)
+docker-compose run --rm go-db -no-saves -port 8080
 
-# Pure performance testing (no automatic saves)
-docker-compose -f docker-compose-configs.yml up -d go-db-no-saves
+# Custom memory limit
+docker-compose run --rm go-db -max-memory=2048 -port 8080
 
-# Stop any configuration
-docker-compose -f docker-compose-configs.yml down -v
+# Stop the service
+docker-compose down
 ```
 
 **Custom Configuration:**
@@ -754,23 +702,19 @@ docker-compose -f docker-compose-configs.yml down -v
 You can also run with custom flags:
 
 ```bash
-# Custom background save interval
-docker-compose run --rm go-db -background-save=30s -port 8080
+# No-saves mode with custom memory limit
+docker-compose run --rm go-db -no-saves -max-memory=2048 -port 8080
 
-# Disable transaction saves with custom memory limit
-docker-compose run --rm go-db -transaction-save=false -max-memory=2048 -port 8080
+# Dual-write mode with custom data directory
+docker-compose run --rm go-db -data-dir=/tmp/go-db -port 8080
 ```
 
 ### Data Persistence
 
-- **Production mode** (`docker-compose up`): Uses `go-db-data` volume
-- **Configuration testing**: Each config uses isolated volumes:
-  - `go-db-transaction-data`
-  - `go-db-background-1s-data`
-  - `go-db-background-5s-data`
-  - `go-db-no-saves-data`
+- **Production mode** (`docker-compose up`): Uses `go-db-data` volume with dual-write persistence
+- **Performance mode**: Uses temporary container storage (data lost on container stop)
 
-Data persists between container restarts for all configurations.
+Data persists between container restarts in production mode.
 
 ## Advanced Features
 

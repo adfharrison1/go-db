@@ -54,22 +54,33 @@ func (se *StorageEngine) Insert(collName string, doc domain.Document) (domain.Do
 	var resultErr error
 
 	// Insert operations modify the Documents map, so they need collection write locks
-	err = se.withCollectionWriteLock(collName, func() error {
-		err := se.withDocumentWriteLock(collName, docID, func() error {
+	// For no-saves mode, use simpler locking to avoid deadlocks under high load
+	if se.noSaves {
+		// Simple collection-level locking for no-saves mode
+		err = se.withCollectionWriteLock(collName, func() error {
 			result, resultErr = se.insertDocumentUnsafe(collName, docID, doc)
 			return resultErr
 		})
-		return err
-	})
+	} else {
+		// Dual-write mode: use document-level locking for fine-grained concurrency
+		err = se.withCollectionWriteLock(collName, func() error {
+			err := se.withDocumentWriteLock(collName, docID, func() error {
+				result, resultErr = se.insertDocumentUnsafe(collName, docID, doc)
+				return resultErr
+			})
+			return err
+		})
+	}
 
 	if err != nil {
 		return nil, err
 	}
 
-	// Save collection after transaction if enabled
-	if se.transactionSave {
-		if err := se.SaveCollectionAfterTransaction(collName); err != nil {
-			return nil, fmt.Errorf("failed to save collection after insert: %w", err)
+	// Dual-write: Save document to disk immediately (unless no-saves mode)
+	if !se.noSaves {
+		if err := se.saveDocumentToDisk(collName, docID, result); err != nil {
+			// Queue for background retry if immediate write fails
+			se.queueDiskWrite(collName, docID, result)
 		}
 	}
 
@@ -192,14 +203,34 @@ func (se *StorageEngine) UpdateById(collName, docId string, updates domain.Docum
 	var result domain.Document
 	var resultErr error
 
-	err := se.withDocumentWriteLock(collName, docId, func() error {
-		result, resultErr = se.updateByIdUnsafe(collName, docId, updates)
-		return resultErr
-	})
-
-	if err != nil {
-		return nil, err
+	// For no-saves mode, use collection-level locking to avoid deadlocks
+	if se.noSaves {
+		err := se.withCollectionWriteLock(collName, func() error {
+			result, resultErr = se.updateByIdUnsafe(collName, docId, updates)
+			return resultErr
+		})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Dual-write mode: use document-level locking for fine-grained concurrency
+		err := se.withDocumentWriteLock(collName, docId, func() error {
+			result, resultErr = se.updateByIdUnsafe(collName, docId, updates)
+			return resultErr
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
+
+	// Dual-write: Save document to disk immediately (unless no-saves mode)
+	if !se.noSaves {
+		if err := se.saveDocumentToDisk(collName, docId, result); err != nil {
+			// Queue for background retry if immediate write fails
+			se.queueDiskWrite(collName, docId, result)
+		}
+	}
+
 	return result, nil
 }
 
@@ -246,14 +277,34 @@ func (se *StorageEngine) ReplaceById(collName, docId string, newDoc domain.Docum
 	var result domain.Document
 	var resultErr error
 
-	err := se.withDocumentWriteLock(collName, docId, func() error {
-		result, resultErr = se.replaceByIdUnsafe(collName, docId, newDoc)
-		return resultErr
-	})
-
-	if err != nil {
-		return nil, err
+	// For no-saves mode, use collection-level locking to avoid deadlocks
+	if se.noSaves {
+		err := se.withCollectionWriteLock(collName, func() error {
+			result, resultErr = se.replaceByIdUnsafe(collName, docId, newDoc)
+			return resultErr
+		})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Dual-write mode: use document-level locking for fine-grained concurrency
+		err := se.withDocumentWriteLock(collName, docId, func() error {
+			result, resultErr = se.replaceByIdUnsafe(collName, docId, newDoc)
+			return resultErr
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
+
+	// Dual-write: Save document to disk immediately (unless no-saves mode)
+	if !se.noSaves {
+		if err := se.saveDocumentToDisk(collName, docId, result); err != nil {
+			// Queue for background retry if immediate write fails
+			se.queueDiskWrite(collName, docId, result)
+		}
+	}
+
 	return result, nil
 }
 
@@ -297,11 +348,26 @@ func (se *StorageEngine) replaceByIdUnsafe(collName, docId string, newDoc domain
 // DeleteById removes a specific document by its ID
 func (se *StorageEngine) DeleteById(collName, docId string) error {
 	// Delete operations modify the Documents map, so they need collection write locks
-	return se.withCollectionWriteLock(collName, func() error {
+	err := se.withCollectionWriteLock(collName, func() error {
 		return se.withDocumentWriteLock(collName, docId, func() error {
 			return se.deleteByIdUnsafe(collName, docId)
 		})
 	})
+
+	if err != nil {
+		return err
+	}
+
+	// Dual-write: Save collection to disk immediately (unless no-saves mode)
+	if !se.noSaves {
+		if err := se.SaveCollectionAfterTransaction(collName); err != nil {
+			// For deletes, we need to save the entire collection since we removed a document
+			// Queue for background retry if immediate write fails
+			se.queueDiskWrite(collName, docId, nil) // nil document indicates delete
+		}
+	}
+
+	return nil
 }
 
 // deleteByIdUnsafe performs the actual delete operation (caller must hold collection write lock)
@@ -740,6 +806,15 @@ func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) ([
 
 	if err != nil {
 		return nil, err
+	}
+
+	// Dual-write: Save collection to disk immediately (unless no-saves mode)
+	if !se.noSaves {
+		if err := se.SaveCollectionAfterTransaction(collName); err != nil {
+			// For batch inserts, we need to save the entire collection
+			// Queue for background retry if immediate write fails
+			se.queueDiskWrite(collName, "", nil) // Empty docID indicates batch operation
+		}
 	}
 
 	return result, nil

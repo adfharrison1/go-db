@@ -18,13 +18,12 @@ import (
 func main() {
 	// Command line flags
 	var (
-		port            = flag.String("port", "8080", "Server port")
-		dataFile        = flag.String("data-file", "go-db_data.godb", "Data file path for persistence")
-		dataDir         = flag.String("data-dir", ".", "Data directory for storage")
-		maxMemory       = flag.Int("max-memory", 1024, "Maximum memory usage in MB")
-		backgroundSave  = flag.Duration("background-save", 0, "Background save interval (e.g., 5m, 30s). Set to 0 to disable.")
-		transactionSave = flag.Bool("transaction-save", true, "Save to disk after every write transaction (default: true)")
-		showHelp        = flag.Bool("help", false, "Show help message")
+		port      = flag.String("port", "8080", "Server port")
+		dataFile  = flag.String("data-file", "go-db_data.godb", "Data file path for persistence")
+		dataDir   = flag.String("data-dir", ".", "Data directory for storage")
+		maxMemory = flag.Int("max-memory", 1024, "Maximum memory usage in MB")
+		noSaves   = flag.Bool("no-saves", false, "Disable automatic disk writes (only save on shutdown)")
+		showHelp  = flag.Bool("help", false, "Show help message")
 	)
 
 	flag.Usage = func() {
@@ -33,15 +32,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  %s                                    # Start with defaults (transaction saves enabled)\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s                                    # Start with defaults (dual-write mode)\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s -port 9090 -max-memory 2048       # Custom port and memory\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  %s -background-save 5m               # Auto-save every 5 minutes (disables transaction saves)\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  %s -transaction-save=false            # Disable transaction saves\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -no-saves                          # Disable automatic disk writes (shutdown only)\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s -data-dir /tmp/go-db              # Custom data directory\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\nPersistence Options:\n")
-		fmt.Fprintf(os.Stderr, "  Transaction saves: Data saved after every write operation (default)\n")
-		fmt.Fprintf(os.Stderr, "  Background saves: Data saved periodically on a timer\n")
-		fmt.Fprintf(os.Stderr, "  Note: Background saves automatically disable transaction saves for performance\n")
+		fmt.Fprintf(os.Stderr, "  Dual-write mode: Data saved to memory and disk immediately (default)\n")
+		fmt.Fprintf(os.Stderr, "  No-saves mode: Data only saved on graceful shutdown (maximum performance)\n")
 	}
 
 	flag.Parse()
@@ -66,20 +63,12 @@ func main() {
 		log.Printf("INFO: Max memory set to: %d MB", *maxMemory)
 	}
 
-	// Set background save if specified
-	if *backgroundSave > 0 {
-		storageOptions = append(storageOptions, storage.WithBackgroundSave(*backgroundSave))
-		log.Printf("INFO: Background save enabled: every %v", *backgroundSave)
+	// Set no-saves option
+	if *noSaves {
+		storageOptions = append(storageOptions, storage.WithNoSaves(true))
+		log.Printf("INFO: No-saves mode enabled - data only saved on shutdown")
 	} else {
-		log.Printf("INFO: Background save disabled")
-	}
-
-	// Set transaction save option
-	storageOptions = append(storageOptions, storage.WithTransactionSave(*transactionSave))
-	if *transactionSave {
-		log.Printf("INFO: Transaction saves enabled - data saved after each write operation")
-	} else {
-		log.Printf("INFO: Transaction saves disabled")
+		log.Printf("INFO: Dual-write mode enabled - data saved to memory and disk immediately")
 	}
 
 	// Create a new server with storage options

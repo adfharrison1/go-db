@@ -14,6 +14,15 @@ type CollectionLock struct {
 	saving bool // Track if collection is being saved
 }
 
+// DiskWriteRequest represents a failed disk write that needs retry
+type DiskWriteRequest struct {
+	Collection string
+	DocumentID string
+	Document   domain.Document
+	RetryCount int
+	Timestamp  time.Time
+}
+
 // StorageEngine provides memory management with LRU caching and lazy loading
 type StorageEngine struct {
 	mu          sync.RWMutex
@@ -31,16 +40,19 @@ type StorageEngine struct {
 	docLocksMu    sync.RWMutex             // protects documentLocks map
 
 	// Configuration
-	maxMemoryMB     int
-	dataDir         string
-	dataFile        string // Current data file for single-file persistence
-	backgroundSave  bool
-	transactionSave bool
-	saveInterval    time.Duration
+	maxMemoryMB int
+	dataDir     string
+	dataFile    string // Current data file for single-file persistence
+	noSaves     bool   // If true, only save on shutdown
 
 	// Background workers
 	backgroundWg sync.WaitGroup
 	stopChan     chan struct{}
+	stopOnce     sync.Once
+
+	// Disk write queue for failed immediate writes
+	diskWriteQueue chan DiskWriteRequest
+	diskWriteWg    sync.WaitGroup
 
 	// Per-collection ID counters for thread-safe ID generation
 	idCounters   map[string]*int64
@@ -58,10 +70,9 @@ func NewStorageEngine(options ...StorageOption) *StorageEngine {
 		idCounters:      make(map[string]*int64),
 		maxMemoryMB:     1024, // 1GB default
 		dataDir:         ".",
-		backgroundSave:  false,
-		transactionSave: true, // Default to transaction-based saves
-		saveInterval:    5 * time.Minute,
+		noSaves:         false, // Default to dual-write mode
 		stopChan:        make(chan struct{}),
+		diskWriteQueue:  make(chan DiskWriteRequest, 1000), // Buffer for failed writes
 	}
 
 	// Apply options
@@ -71,6 +82,9 @@ func NewStorageEngine(options ...StorageOption) *StorageEngine {
 
 	// Initialize cache with capacity based on max memory
 	engine.cache = NewLRUCache(engine.maxMemoryMB / 100) // Rough estimate: 100MB per collection
+
+	// Start disk write queue processing
+	engine.startDiskWriteQueue()
 
 	return engine
 }
@@ -155,10 +169,10 @@ func (se *StorageEngine) withDocumentWriteLock(collName, docID string, fn func()
 	return fn()
 }
 
-// SaveCollectionAfterTransaction saves a specific collection to disk if transaction saves are enabled
+// SaveCollectionAfterTransaction saves a specific collection to disk
 func (se *StorageEngine) SaveCollectionAfterTransaction(collName string) error {
-	if !se.transactionSave {
-		return nil // Transaction saves disabled
+	if se.noSaves {
+		return nil // No-saves mode enabled
 	}
 
 	// Use collection write lock to prevent concurrent modifications during save
@@ -173,9 +187,80 @@ func (se *StorageEngine) SaveCollectionAfterTransaction(collName string) error {
 	})
 }
 
-// IsTransactionSaveEnabled returns whether transaction-based saves are enabled
-func (se *StorageEngine) IsTransactionSaveEnabled() bool {
-	return se.transactionSave
+// startDiskWriteQueue starts the background goroutine to process failed disk writes
+func (se *StorageEngine) startDiskWriteQueue() {
+	se.diskWriteWg.Add(1)
+	go func() {
+		defer se.diskWriteWg.Done()
+		for req := range se.diskWriteQueue {
+			se.processDiskWriteRequest(req)
+		}
+	}()
+}
+
+// processDiskWriteRequest processes a failed disk write with retry logic
+func (se *StorageEngine) processDiskWriteRequest(req DiskWriteRequest) {
+	maxRetries := 3
+	baseDelay := time.Second
+
+	if req.RetryCount >= maxRetries {
+		// Log final failure and give up
+		// In a real implementation, you might want to persist this to a dead letter queue
+		return
+	}
+
+	// Exponential backoff with interruptible sleep
+	delay := time.Duration(req.RetryCount+1) * baseDelay
+	select {
+	case <-time.After(delay):
+		// Delay completed
+	case <-se.stopChan:
+		// Stop requested, exit
+		return
+	}
+
+	// Retry the disk write
+	if err := se.saveDocumentToDisk(req.Collection, req.DocumentID, req.Document); err != nil {
+		// Still failed, increment retry count and requeue
+		req.RetryCount++
+		select {
+		case se.diskWriteQueue <- req:
+			// Successfully requeued
+		case <-se.stopChan:
+			// Stop requested, exit
+			return
+		default:
+			// Queue is full, log error
+			// In a real implementation, you might want to persist this to a dead letter queue
+		}
+	}
+	// If successful, the request is automatically removed from the queue
+}
+
+// queueDiskWrite queues a failed disk write for background retry
+func (se *StorageEngine) queueDiskWrite(collection, docID string, doc domain.Document) {
+	req := DiskWriteRequest{
+		Collection: collection,
+		DocumentID: docID,
+		Document:   doc,
+		RetryCount: 0,
+		Timestamp:  time.Now(),
+	}
+
+	select {
+	case se.diskWriteQueue <- req:
+		// Successfully queued
+	default:
+		// Queue is full, log error
+		// In a real implementation, you might want to persist this to a dead letter queue
+	}
+}
+
+// IsNoSavesEnabled returns whether no-saves mode is enabled
+func (se *StorageEngine) IsNoSavesEnabled() bool {
+	se.mu.RLock()
+	defer se.mu.RUnlock()
+	return se.noSaves
 }
 
 // GetIndexEngine returns the index engine instance

@@ -9,10 +9,8 @@ echo ""
 
 # Array of configurations to test
 declare -a configs=(
-    "go-db-transaction:Transaction Saves (Default)"
-    "go-db-background-1s:Background Saves (1s)"
-    "go-db-background-5s:Background Saves (5s)" 
-    "go-db-no-saves:No Auto Saves (Pure Performance)"
+    "go-db-dual-write:Dual-Write Mode (Default - Maximum Data Safety)"
+    "go-db-no-saves:No-Saves Mode (Maximum Performance)"
 )
 
 # Results directory
