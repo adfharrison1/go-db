@@ -75,6 +75,9 @@ type StorageEngine struct {
 	stopChan     chan struct{}
 	stopOnce     sync.Once
 
+	// Memory-mapped file manager (for ModeMemoryMap)
+	memoryMapManager *MemoryMapManager
+
 	// Disk write queue for failed immediate writes
 	diskWriteQueue chan DiskWriteRequest
 	diskWriteWg    sync.WaitGroup
@@ -109,6 +112,11 @@ func NewStorageEngine(options ...StorageOption) *StorageEngine {
 
 	// Initialize cache with capacity based on max memory
 	engine.cache = NewLRUCache(engine.maxMemoryMB / 100) // Rough estimate: 100MB per collection
+
+	// Initialize memory map manager if using memory-map mode
+	if engine.useMemoryMap {
+		engine.memoryMapManager = NewMemoryMapManager(engine.dataDir, ".godb")
+	}
 
 	// Start disk write queue processing
 	engine.startDiskWriteQueue()
@@ -307,4 +315,17 @@ func (se *StorageEngine) IsMemoryMapEnabled() bool {
 // GetIndexEngine returns the index engine instance
 func (se *StorageEngine) GetIndexEngine() domain.IndexEngine {
 	return se.indexEngine
+}
+
+// Close cleans up resources and closes memory-mapped files
+func (se *StorageEngine) Close() error {
+	se.mu.Lock()
+	defer se.mu.Unlock()
+
+	// Close memory map manager if it exists
+	if se.memoryMapManager != nil {
+		return se.memoryMapManager.CloseAll()
+	}
+
+	return nil
 }

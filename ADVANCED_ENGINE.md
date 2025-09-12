@@ -584,22 +584,95 @@ engine := storage.NewStorageEngine(storage.WithNoSaves(true))
 - **P95 Latency**: ~40-50ms
 - **Use Case**: Caching, analytics, testing
 
+#### 🗺️ Memory-Map Mode (Optimal Performance with Memory Efficiency)
+
+**Configuration:**
+
+```go
+engine := storage.NewStorageEngine(storage.WithMode(storage.ModeMemoryMap))
+```
+
+**Characteristics:**
+
+- 🚀 **Memory-Mapped Files**: Direct file access in virtual memory for zero-copy operations
+- ⚡ **OS-Level Caching**: Leverages operating system page cache for optimal performance
+- 💾 **Persistent Storage**: Data persists across restarts with memory-mapped file backing
+- 🔄 **Lazy Loading**: Data loaded on-demand, reducing memory footprint
+- 📈 **High Throughput**: Near memory-speed performance with disk persistence
+- 🧠 **Memory Efficiency**: Only active data pages loaded into memory
+
+**Performance (Expected):**
+
+- **Throughput**: ~400-600 requests/second (estimated)
+- **P95 Latency**: ~200-400ms (estimated)
+- **Average Response Time**: ~50-150ms (estimated)
+- **Success Rate**: 100% (with persistence)
+- **Memory Usage**: Only active pages in memory (OS-managed)
+- **Use Case**: High-performance applications requiring both speed and persistence
+
+**Technical Implementation:**
+
+The memory-map mode uses the `golang.org/x/sys/unix` package to create memory-mapped files that provide:
+
+1. **Zero-Copy Operations**: Direct memory access without data copying
+2. **OS Page Management**: Automatic memory management by the operating system
+3. **Lazy Loading**: Pages loaded only when accessed
+4. **Automatic Caching**: OS page cache handles frequently accessed data
+5. **Virtual Memory**: Large files accessible without loading entirely into RAM
+
+**Memory-Mapped File Architecture:**
+
+```go
+type MemoryMappedFile struct {
+    file    *os.File
+    data    []byte        // Memory-mapped data
+    size    int64         // File size
+    path    string        // File path
+    readOnly bool         // Read-only flag
+}
+
+type MemoryMapManager struct {
+    files    map[string]*MemoryMappedFile
+    dataDir  string
+    fileExt  string
+    mu       sync.RWMutex
+}
+```
+
+**Key Benefits:**
+
+- **Performance**: Near memory-speed operations with disk persistence
+- **Memory Efficiency**: OS manages memory usage automatically
+- **Scalability**: Can handle files larger than available RAM
+- **Persistence**: Data survives application restarts
+- **OS Integration**: Leverages OS page cache and memory management
+
+**Trade-offs:**
+
+- **Complexity**: More complex implementation than traditional file I/O
+- **Platform Dependency**: Uses Unix-specific system calls
+- **Memory Pressure**: Can cause memory pressure on systems with limited RAM
+- **File Locking**: Requires careful file locking for concurrent access
+
 ## Performance Characteristics
 
-| Operation                        | Memory Impact             | Performance  | Mode       |
-| -------------------------------- | ------------------------- | ------------ | ---------- |
-| **Startup**                      | ~1MB (metadata only)      | Very Fast    | Both       |
-| **Collection Load**              | ~2-5MB per collection     | Fast         | Both       |
-| **Document Insert**              | Constant + 8 bytes/coll   | Very Fast    | Both       |
-| **Document Insert (dual-write)** | Constant + disk I/O       | Fast         | Dual-Write |
-| **Document Insert (no-saves)**   | Constant only             | Very Fast    | No-Saves   |
-| **ID Generation**                | Atomic operations         | O(1)         | Both       |
-| **Document Find (no index)**     | Full collection scan      | O(n)         | Both       |
-| **Document Find (indexed)**      | Index lookup only         | O(log n)     | Both       |
-| **Streaming**                    | Constant (100 doc buffer) | Very Fast    | Both       |
-| **Pagination (offset)**          | Full scan + skip          | O(n)         | Both       |
-| **Pagination (cursor)**          | Index-based navigation    | O(log n)     | Both       |
-| **Background Retry**             | Minimal (failed writes)   | Non-blocking | Dual-Write |
+| Operation                        | Memory Impact             | Performance  | Mode                |
+| -------------------------------- | ------------------------- | ------------ | ------------------- |
+| **Startup**                      | ~1MB (metadata only)      | Very Fast    | All                 |
+| **Collection Load**              | ~2-5MB per collection     | Fast         | Dual-Write/No-Saves |
+| **Collection Load (memory-map)** | OS-managed pages only     | Very Fast    | Memory-Map          |
+| **Document Insert**              | Constant + 8 bytes/coll   | Very Fast    | All                 |
+| **Document Insert (dual-write)** | Constant + disk I/O       | Fast         | Dual-Write          |
+| **Document Insert (no-saves)**   | Constant only             | Very Fast    | No-Saves            |
+| **Document Insert (memory-map)** | Constant + mmap write     | Fast         | Memory-Map          |
+| **ID Generation**                | Atomic operations         | O(1)         | All                 |
+| **Document Find (no index)**     | Full collection scan      | O(n)         | All                 |
+| **Document Find (indexed)**      | Index lookup only         | O(log n)     | All                 |
+| **Streaming**                    | Constant (100 doc buffer) | Very Fast    | All                 |
+| **Pagination (offset)**          | Full scan + skip          | O(n)         | All                 |
+| **Pagination (cursor)**          | Index-based navigation    | O(log n)     | All                 |
+| **Background Retry**             | Minimal (failed writes)   | Non-blocking | Dual-Write          |
+| **Memory-Map Sync**              | OS page cache flush       | Fast         | Memory-Map          |
 
 ### Performance Benchmarks
 
@@ -627,6 +700,14 @@ Based on our test results:
 - **P95 Latency**: ~40-50ms
 - **Success Rate**: 100% (memory operations only)
 - **Disk I/O**: No disk I/O during operations
+
+**Memory-Map Mode:**
+
+- **Throughput**: ~400-600 requests/second (estimated)
+- **P95 Latency**: ~200-400ms (estimated)
+- **Success Rate**: 100% (with persistence)
+- **Disk I/O**: Memory-mapped file operations (OS-managed)
+- **Memory Usage**: Only active pages loaded (OS-managed)
 
 ### Scalability
 
@@ -1100,6 +1181,7 @@ go test ./pkg/storage/... -bench=.
 - **Choose the right mode** based on your requirements:
   - Use **dual-write mode** for production systems requiring zero data loss
   - Use **no-saves mode** for high-performance scenarios where data can be recreated
+  - Use **memory-map mode** for high-performance applications requiring both speed and persistence
 - **Use streaming** for read-heavy operations on large collections
 - **Monitor cache hit rates** to optimize memory usage
 - **Batch operations** when possible
@@ -1134,7 +1216,7 @@ engine.StartBackgroundWorkers()
 ### Migration Steps
 
 1. **Update imports** (if using old package names)
-2. **Choose operational mode** (dual-write or no-saves)
+2. **Choose operational mode** (dual-write, no-saves, or memory-map)
 3. **Update configuration** to use new simplified options
 4. **Enable streaming** for large collections
 5. **Add error handling** for new error types

@@ -11,6 +11,11 @@ import (
 
 // Insert inserts a document into a collection and returns the created document with ID
 func (se *StorageEngine) Insert(collName string, doc domain.Document) (domain.Document, error) {
+	// Dispatch to mode-specific implementation
+	if se.useMemoryMap {
+		return se.insertMemoryMap(collName, doc)
+	}
+
 	// First, ensure collection exists and generate ID (requires collection lock)
 	var docID string
 	err := se.withCollectionWriteLock(collName, func() error {
@@ -165,6 +170,11 @@ func (se *StorageEngine) insertUnsafe(collName string, doc domain.Document) (dom
 
 // GetById retrieves a specific document by its ID
 func (se *StorageEngine) GetById(collName, docId string) (domain.Document, error) {
+	// Dispatch to mode-specific implementation
+	if se.useMemoryMap {
+		return se.getByIdMemoryMap(collName, docId)
+	}
+
 	var result domain.Document
 	var resultErr error
 
@@ -200,6 +210,11 @@ func (se *StorageEngine) getByIdUnsafe(collName, docId string) (domain.Document,
 
 // UpdateById updates a specific document by its ID and returns the updated document
 func (se *StorageEngine) UpdateById(collName, docId string, updates domain.Document) (domain.Document, error) {
+	// Dispatch to mode-specific implementation
+	if se.useMemoryMap {
+		return se.updateByIdMemoryMap(collName, docId, updates)
+	}
+
 	var result domain.Document
 	var resultErr error
 
@@ -274,6 +289,11 @@ func (se *StorageEngine) updateByIdUnsafe(collName, docId string, updates domain
 
 // ReplaceById completely replaces a document with new content (PUT operation)
 func (se *StorageEngine) ReplaceById(collName, docId string, newDoc domain.Document) (domain.Document, error) {
+	// Dispatch to mode-specific implementation
+	if se.useMemoryMap {
+		return se.replaceByIdMemoryMap(collName, docId, newDoc)
+	}
+
 	var result domain.Document
 	var resultErr error
 
@@ -347,6 +367,11 @@ func (se *StorageEngine) replaceByIdUnsafe(collName, docId string, newDoc domain
 
 // DeleteById removes a specific document by its ID
 func (se *StorageEngine) DeleteById(collName, docId string) error {
+	// Dispatch to mode-specific implementation
+	if se.useMemoryMap {
+		return se.deleteByIdMemoryMap(collName, docId)
+	}
+
 	// Delete operations modify the Documents map, so they need collection write locks
 	err := se.withCollectionWriteLock(collName, func() error {
 		return se.withDocumentWriteLock(collName, docId, func() error {

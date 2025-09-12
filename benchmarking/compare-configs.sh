@@ -11,6 +11,7 @@ echo ""
 declare -a configs=(
     "go-db-dual-write:Dual-Write Mode (Default - Maximum Data Safety)"
     "go-db-no-saves:No-Saves Mode (Maximum Performance)"
+    "go-db-memory-map:Memory-Map Mode (Optimal Performance with Memory Efficiency)"
 )
 
 # Results directory
