@@ -90,6 +90,9 @@ func (se *StorageEngine) Insert(collName string, doc domain.Document) (domain.Do
 		return nil, fmt.Errorf("failed to insert document in memory: %w", err)
 	}
 
+	// Update indexes
+	se.updateIndexesForDocument(collName, doc["_id"].(string), nil, doc)
+
 	// Update collection metadata
 	se.updateCollectionMetadata(collName, 1)
 
@@ -136,6 +139,11 @@ func (se *StorageEngine) BatchInsert(collName string, docs []domain.Document) ([
 	// Update in-memory collection
 	if err := se.memoryMgr.BatchInsertDocuments(collName, docs); err != nil {
 		return nil, fmt.Errorf("failed to batch insert documents in memory: %w", err)
+	}
+
+	// Update indexes for each document
+	for _, doc := range docs {
+		se.updateIndexesForDocument(collName, doc["_id"].(string), nil, doc)
 	}
 
 	// Update collection metadata
@@ -194,6 +202,9 @@ func (se *StorageEngine) UpdateById(collName, docId string, updates domain.Docum
 		return nil, fmt.Errorf("failed to update document in memory: %w", err)
 	}
 
+	// Update indexes
+	se.updateIndexesForDocument(collName, docId, existing, updated)
+
 	se.updateStats(func(s *StorageStats) {
 		s.WALEntriesWritten++
 		s.WALBytesWritten += int64(len(fmt.Sprintf("%+v", updates)))
@@ -221,10 +232,16 @@ func (se *StorageEngine) ReplaceById(collName, docId string, newDoc domain.Docum
 		return nil, fmt.Errorf("failed to write WAL entry: %w", err)
 	}
 
+	// Get existing document for index updates
+	existing, _ := se.memoryMgr.GetById(collName, docId)
+
 	// Update in-memory collection
 	if err := se.memoryMgr.ReplaceDocument(collName, docId, newDoc); err != nil {
 		return nil, fmt.Errorf("failed to replace document in memory: %w", err)
 	}
+
+	// Update indexes
+	se.updateIndexesForDocument(collName, docId, existing, newDoc)
 
 	se.updateStats(func(s *StorageStats) {
 		s.WALEntriesWritten++
@@ -255,6 +272,11 @@ func (se *StorageEngine) BatchUpdate(collName string, updates []domain.BatchUpda
 		return nil, fmt.Errorf("failed to batch update documents in memory: %w", err)
 	}
 
+	// Update indexes for each updated document
+	for i, result := range results {
+		se.updateIndexesForDocument(collName, updates[i].ID, nil, result)
+	}
+
 	se.updateStats(func(s *StorageStats) {
 		s.WALEntriesWritten++
 		s.WALBytesWritten += int64(len(fmt.Sprintf("%+v", updates)))
@@ -278,10 +300,16 @@ func (se *StorageEngine) DeleteById(collName, docId string) error {
 		return fmt.Errorf("failed to write WAL entry: %w", err)
 	}
 
+	// Get existing document for index updates
+	existing, _ := se.memoryMgr.GetById(collName, docId)
+
 	// Delete from in-memory collection
 	if err := se.memoryMgr.DeleteDocument(collName, docId); err != nil {
 		return fmt.Errorf("failed to delete document in memory: %w", err)
 	}
+
+	// Update indexes (remove document from all indexes)
+	se.updateIndexesForDocument(collName, docId, existing, nil)
 
 	// Update collection metadata
 	se.updateCollectionMetadata(collName, -1)
@@ -410,19 +438,89 @@ func (se *StorageEngine) GetIndexes(collName string) ([]string, error) {
 
 // CreateIndex implements domain.StorageEngine
 func (se *StorageEngine) CreateIndex(collName, fieldName string) error {
-	se.collectionsMu.Lock()
-	defer se.collectionsMu.Unlock()
-
-	collInfo, exists := se.collections[collName]
-	if !exists {
-		return fmt.Errorf("collection %s not found", collName)
+	// Create index in index engine
+	if err := se.indexEngine.CreateIndex(collName, fieldName); err != nil {
+		return fmt.Errorf("failed to create index: %w", err)
 	}
 
-	// Add to collection indexes
-	collInfo.Indexes = append(collInfo.Indexes, fieldName)
+	// Build index for existing documents
+	if err := se.buildIndexForCollection(collName, fieldName); err != nil {
+		// If building fails, clean up the index
+		se.indexEngine.DropIndex(collName, fieldName)
+		return fmt.Errorf("failed to build index: %w", err)
+	}
 
-	// Create index in index engine
-	return se.indexEngine.CreateIndex(collName, fieldName)
+	// Update collection metadata
+	se.collectionsMu.Lock()
+	if collInfo, exists := se.collections[collName]; exists {
+		collInfo.Indexes = append(collInfo.Indexes, fieldName)
+	}
+	se.collectionsMu.Unlock()
+
+	return nil
+}
+
+// DropIndex removes an index from a collection
+func (se *StorageEngine) DropIndex(collName, fieldName string) error {
+	// Drop index from index engine
+	if err := se.indexEngine.DropIndex(collName, fieldName); err != nil {
+		return fmt.Errorf("failed to drop index: %w", err)
+	}
+
+	// Update collection metadata
+	se.collectionsMu.Lock()
+	if collInfo, exists := se.collections[collName]; exists {
+		// Remove fieldName from indexes slice
+		for i, idx := range collInfo.Indexes {
+			if idx == fieldName {
+				collInfo.Indexes = append(collInfo.Indexes[:i], collInfo.Indexes[i+1:]...)
+				break
+			}
+		}
+	}
+	se.collectionsMu.Unlock()
+
+	return nil
+}
+
+// FindByIndex finds documents using an index
+func (se *StorageEngine) FindByIndex(collName, fieldName string, value interface{}) ([]domain.Document, error) {
+	// Get the index
+	index, exists := se.indexEngine.GetIndex(collName, fieldName)
+	if !exists {
+		return nil, fmt.Errorf("index on field %s does not exist in collection %s", fieldName, collName)
+	}
+
+	// Query the index to get document IDs
+	docIDs := index.Query(value)
+	if len(docIDs) == 0 {
+		return []domain.Document{}, nil
+	}
+
+	// Retrieve documents from memory manager
+	var results []domain.Document
+	for _, docID := range docIDs {
+		doc, err := se.memoryMgr.GetById(collName, docID)
+		if err != nil {
+			// Skip documents that no longer exist
+			continue
+		}
+		results = append(results, doc)
+	}
+
+	return results, nil
+}
+
+// UpdateIndex rebuilds an index for a collection
+func (se *StorageEngine) UpdateIndex(collName, fieldName string) error {
+	// Check if index exists
+	_, exists := se.indexEngine.GetIndex(collName, fieldName)
+	if !exists {
+		return fmt.Errorf("index on field %s does not exist in collection %s", fieldName, collName)
+	}
+
+	// Rebuild the index
+	return se.buildIndexForCollection(collName, fieldName)
 }
 
 // Helper methods
@@ -465,4 +563,34 @@ func (se *StorageEngine) updateStats(updater func(*StorageStats)) {
 	se.statsMu.Lock()
 	defer se.statsMu.Unlock()
 	updater(se.stats)
+}
+
+// buildIndexForCollection builds an index for all documents in a collection
+func (se *StorageEngine) buildIndexForCollection(collName, fieldName string) error {
+	// Get all documents from memory manager
+	documents, err := se.memoryMgr.GetAllDocuments(collName)
+	if err != nil {
+		return fmt.Errorf("failed to get documents: %w", err)
+	}
+
+	// Create a domain.Collection for the index engine
+	collection := &domain.Collection{
+		Name:      collName,
+		Documents: make(map[string]domain.Document),
+	}
+
+	// Convert documents to domain.Document format
+	for docID, docData := range documents {
+		if doc, ok := docData.(domain.Document); ok {
+			collection.Documents[docID] = doc
+		}
+	}
+
+	// Build the index
+	return se.indexEngine.BuildIndexForCollection(collName, fieldName, collection)
+}
+
+// updateIndexesForDocument updates all indexes when a document changes
+func (se *StorageEngine) updateIndexesForDocument(collName, docID string, oldDoc, newDoc domain.Document) {
+	se.indexEngine.UpdateIndexForDocument(collName, docID, oldDoc, newDoc)
 }

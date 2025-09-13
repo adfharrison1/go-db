@@ -65,10 +65,14 @@ func (cm *CheckpointManager) Checkpoint() error {
 	// Get all collections to checkpoint
 	collections := cm.getCollectionsToCheckpoint()
 
+	// Export indexes
+	indexes := cm.engine.indexEngine.ExportIndexes()
+
 	// Create checkpoint data
 	checkpointData := &CheckpointData{
 		Timestamp:   time.Now(),
 		Collections: collections,
+		Indexes:     indexes,
 		LSN:         cm.engine.walEngine.GetCurrentLSN(),
 	}
 
@@ -96,9 +100,10 @@ func (cm *CheckpointManager) Checkpoint() error {
 
 // CheckpointData represents the data written during a checkpoint
 type CheckpointData struct {
-	Timestamp   time.Time                  `json:"timestamp"`
-	Collections map[string]*CollectionData `json:"collections"`
-	LSN         int64                      `json:"lsn"`
+	Timestamp   time.Time                      `json:"timestamp"`
+	Collections map[string]*CollectionData     `json:"collections"`
+	Indexes     map[string]map[string][]string `json:"indexes"` // collection -> field -> docIDs
+	LSN         int64                          `json:"lsn"`
 }
 
 // CollectionData represents collection data in a checkpoint

@@ -93,6 +93,30 @@ func (rm *RecoveryManager) restoreFromCheckpoint(checkpoint *CheckpointData) err
 		}
 	}
 
+	// Restore indexes from checkpoint
+	if err := rm.engine.indexEngine.ImportIndexes(checkpoint.Indexes); err != nil {
+		return fmt.Errorf("failed to restore indexes: %w", err)
+	}
+
+	// Rebuild indexes with actual document data
+	for name, collData := range checkpoint.Collections {
+		// Create a domain.Collection for index rebuilding
+		collection := &domain.Collection{
+			Name:      name,
+			Documents: make(map[string]domain.Document),
+		}
+
+		// Convert documents to domain.Document format
+		for docID, docData := range collData.Documents {
+			if doc, ok := docData.(map[string]interface{}); ok {
+				collection.Documents[docID] = domain.Document(doc)
+			}
+		}
+
+		// Rebuild indexes for this collection
+		rm.engine.indexEngine.RebuildIndexForCollection(name, collection)
+	}
+
 	return nil
 }
 

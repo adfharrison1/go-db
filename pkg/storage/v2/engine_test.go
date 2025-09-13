@@ -253,3 +253,133 @@ func TestStorageEngine_GetMemoryStats(t *testing.T) {
 		t.Error("Expected collection_count in stats")
 	}
 }
+
+func TestStorageEngine_CreateIndex(t *testing.T) {
+	engine := NewStorageEngine(
+		WithWALDir("/tmp/test-wal"),
+		WithDataDir("/tmp/test-data"),
+	)
+
+	// Create collection first
+	if err := engine.CreateCollection("test_collection"); err != nil {
+		t.Fatalf("Failed to create collection: %v", err)
+	}
+
+	// Insert some test documents
+	docs := []domain.Document{
+		{"_id": "doc1", "name": "Alice", "age": 30},
+		{"_id": "doc2", "name": "Bob", "age": 25},
+		{"_id": "doc3", "name": "Charlie", "age": 35},
+	}
+
+	for _, doc := range docs {
+		_, err := engine.Insert("test_collection", doc)
+		if err != nil {
+			t.Fatalf("Failed to insert document: %v", err)
+		}
+	}
+
+	// Create index on name field
+	if err := engine.CreateIndex("test_collection", "name"); err != nil {
+		t.Fatalf("Failed to create index: %v", err)
+	}
+
+	// Test finding documents by index
+	results, err := engine.FindByIndex("test_collection", "name", "Alice")
+	if err != nil {
+		t.Fatalf("Failed to find by index: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Errorf("Expected 1 result, got %d", len(results))
+	}
+
+	if results[0]["name"] != "Alice" {
+		t.Errorf("Expected Alice, got %v", results[0]["name"])
+	}
+}
+
+func TestStorageEngine_IndexUpdates(t *testing.T) {
+	engine := NewStorageEngine(
+		WithWALDir("/tmp/test-wal"),
+		WithDataDir("/tmp/test-data"),
+	)
+
+	// Create collection and insert document
+	doc := domain.Document{"_id": "doc1", "name": "Alice", "age": 30}
+	_, err := engine.Insert("test_collection", doc)
+	if err != nil {
+		t.Fatalf("Failed to insert document: %v", err)
+	}
+
+	// Create index on name field
+	if err := engine.CreateIndex("test_collection", "name"); err != nil {
+		t.Fatalf("Failed to create index: %v", err)
+	}
+
+	// Update document
+	updates := domain.Document{"name": "Alice Updated"}
+	_, err = engine.UpdateById("test_collection", "doc1", updates)
+	if err != nil {
+		t.Fatalf("Failed to update document: %v", err)
+	}
+
+	// Test that index was updated
+	results, err := engine.FindByIndex("test_collection", "name", "Alice Updated")
+	if err != nil {
+		t.Fatalf("Failed to find by index: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Errorf("Expected 1 result, got %d", len(results))
+	}
+
+	if results[0]["name"] != "Alice Updated" {
+		t.Errorf("Expected Alice Updated, got %v", results[0]["name"])
+	}
+
+	// Test that old value is no longer indexed
+	oldResults, err := engine.FindByIndex("test_collection", "name", "Alice")
+	if err != nil {
+		t.Fatalf("Failed to find by index: %v", err)
+	}
+
+	if len(oldResults) != 0 {
+		t.Errorf("Expected 0 results for old value, got %d", len(oldResults))
+	}
+}
+
+func TestStorageEngine_IndexDeletion(t *testing.T) {
+	engine := NewStorageEngine(
+		WithWALDir("/tmp/test-wal"),
+		WithDataDir("/tmp/test-data"),
+	)
+
+	// Create collection and insert document
+	doc := domain.Document{"_id": "doc1", "name": "Alice", "age": 30}
+	_, err := engine.Insert("test_collection", doc)
+	if err != nil {
+		t.Fatalf("Failed to insert document: %v", err)
+	}
+
+	// Create index on name field
+	if err := engine.CreateIndex("test_collection", "name"); err != nil {
+		t.Fatalf("Failed to create index: %v", err)
+	}
+
+	// Delete document
+	err = engine.DeleteById("test_collection", "doc1")
+	if err != nil {
+		t.Fatalf("Failed to delete document: %v", err)
+	}
+
+	// Test that document is no longer found by index
+	results, err := engine.FindByIndex("test_collection", "name", "Alice")
+	if err != nil {
+		t.Fatalf("Failed to find by index: %v", err)
+	}
+
+	if len(results) != 0 {
+		t.Errorf("Expected 0 results after deletion, got %d", len(results))
+	}
+}
