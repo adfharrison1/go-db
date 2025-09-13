@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 )
 
@@ -13,6 +14,7 @@ type HealthResponse struct {
 
 // HandleHealth handles GET requests to the health check endpoint
 func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
+	log.Printf("INFO: Health check endpoint called")
 	response := HealthResponse{
 		Status:  "healthy",
 		Message: "go-db is running",

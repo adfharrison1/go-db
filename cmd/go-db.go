@@ -16,6 +16,10 @@ import (
 )
 
 func main() {
+	// Simple logging configuration
+	log.SetOutput(os.Stdout)
+	log.SetFlags(log.LstdFlags)
+
 	// Command line flags
 	var (
 		port      = flag.String("port", "8080", "Server port")

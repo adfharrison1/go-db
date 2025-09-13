@@ -7,8 +7,6 @@ import (
 	"sync"
 	"syscall"
 	"unsafe"
-
-	"golang.org/x/sys/unix"
 )
 
 // MemoryMappedFile represents a memory-mapped file for efficient data access
@@ -171,19 +169,19 @@ func (mm *MemoryMapManager) CloseAll() error {
 	return lastErr
 }
 
-// mmap performs the actual memory mapping using unix.Mmap
+// mmap performs the actual memory mapping using standard syscalls
 func (mm *MemoryMapManager) mmap(file *os.File, size int64, readOnly bool) ([]byte, error) {
-	prot := unix.PROT_READ
+	prot := syscall.PROT_READ
 	if !readOnly {
-		prot |= unix.PROT_WRITE
+		prot |= syscall.PROT_WRITE
 	}
 
-	flags := unix.MAP_SHARED
+	flags := syscall.MAP_SHARED
 	if readOnly {
-		flags = unix.MAP_PRIVATE
+		flags = syscall.MAP_PRIVATE
 	}
 
-	data, err := unix.Mmap(int(file.Fd()), 0, int(size), prot, flags)
+	data, err := syscall.Mmap(int(file.Fd()), 0, int(size), prot, flags)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +191,7 @@ func (mm *MemoryMapManager) mmap(file *os.File, size int64, readOnly bool) ([]by
 
 // munmap unmaps the memory
 func (mm *MemoryMapManager) munmap(data []byte) error {
-	return unix.Munmap(data)
+	return syscall.Munmap(data)
 }
 
 // Read reads data from the memory-mapped file
@@ -280,7 +278,7 @@ func (mf *MemoryMappedFile) Resize(newSize int64) error {
 	}
 
 	// Unmap current memory
-	err := unix.Munmap(mf.data)
+	err := syscall.Munmap(mf.data)
 	if err != nil {
 		return fmt.Errorf("failed to unmap memory during resize: %w", err)
 	}
@@ -292,8 +290,8 @@ func (mf *MemoryMappedFile) Resize(newSize int64) error {
 	}
 
 	// Remap with new size
-	newData, err := unix.Mmap(int(mf.file.Fd()), 0, int(newSize),
-		unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
+	newData, err := syscall.Mmap(int(mf.file.Fd()), 0, int(newSize),
+		syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
 	if err != nil {
 		return fmt.Errorf("failed to remap memory with new size: %w", err)
 	}

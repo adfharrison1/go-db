@@ -187,7 +187,7 @@ docker-compose down -v
 
 **What the comparison script does:**
 
-- Tests all 4 configurations with identical workloads
+- Tests all configurations with identical workloads
 - Uses isolated volumes for clean test environments
 - Captures detailed performance metrics
 - Generates comparison reports
