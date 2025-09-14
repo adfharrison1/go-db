@@ -19,6 +19,13 @@ func WithDataDir(dir string) StorageOption {
 	}
 }
 
+// WithCheckpointDir sets the directory for checkpoint files
+func WithCheckpointDir(dir string) StorageOption {
+	return func(engine *StorageEngine) {
+		engine.checkpointDir = dir
+	}
+}
+
 // WithMaxMemory sets the maximum memory usage in MB
 func WithMaxMemory(mb int) StorageOption {
 	return func(engine *StorageEngine) {

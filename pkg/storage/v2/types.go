@@ -78,6 +78,7 @@ type StorageEngine struct {
 	// Configuration
 	walDir              string
 	dataDir             string
+	checkpointDir       string
 	maxMemoryMB         int
 	checkpointInterval  time.Duration
 	durabilityLevel     DurabilityLevel

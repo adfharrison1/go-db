@@ -199,7 +199,7 @@ func (cm *CheckpointManager) getCollectionsToCheckpoint() map[string]*Collection
 func (cm *CheckpointManager) writeCheckpoint(data *CheckpointData) error {
 	// Create checkpoint filename
 	filename := fmt.Sprintf("checkpoint_%d.json", data.Timestamp.Unix())
-	filePath := filepath.Join(cm.engine.dataDir, filename)
+	filePath := filepath.Join(cm.engine.checkpointDir, filename)
 
 	// Serialize checkpoint data
 	jsonData, err := json.MarshalIndent(data, "", "  ")
@@ -219,7 +219,7 @@ func (cm *CheckpointManager) writeCheckpoint(data *CheckpointData) error {
 	}
 
 	// Update latest checkpoint symlink
-	latestFile := filepath.Join(cm.engine.dataDir, "latest_checkpoint.json")
+	latestFile := filepath.Join(cm.engine.checkpointDir, "latest_checkpoint.json")
 	os.Remove(latestFile) // Ignore error if file doesn't exist
 	if err := os.Symlink(filename, latestFile); err != nil {
 		// Log but don't fail
@@ -249,7 +249,7 @@ func (cm *CheckpointManager) cleanupOldWALFiles() error {
 
 // LoadCheckpoint loads the latest checkpoint
 func (cm *CheckpointManager) LoadCheckpoint() (*CheckpointData, error) {
-	latestFile := filepath.Join(cm.engine.dataDir, "latest_checkpoint.json")
+	latestFile := filepath.Join(cm.engine.checkpointDir, "latest_checkpoint.json")
 
 	// Check if latest checkpoint exists
 	if _, err := os.Stat(latestFile); os.IsNotExist(err) {

@@ -6,3 +6,4 @@ wal/
 *.log
 checkpoint_*.json
 latest_checkpoint.json
+checkpoints/

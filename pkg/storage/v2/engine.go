@@ -19,6 +19,7 @@ func NewStorageEngine(options ...StorageOption) *StorageEngine {
 		indexEngine:         indexing.NewIndexEngine(),
 		walDir:              "./wal",
 		dataDir:             ".",
+		checkpointDir:       "./checkpoints",
 		maxMemoryMB:         1024,
 		checkpointInterval:  30 * time.Second,
 		durabilityLevel:     DurabilityOS,
@@ -46,6 +47,9 @@ func NewStorageEngine(options ...StorageOption) *StorageEngine {
 	}
 	if err := os.MkdirAll(engine.dataDir, 0755); err != nil {
 		log.Fatalf("Failed to create data directory: %v", err)
+	}
+	if err := os.MkdirAll(engine.checkpointDir, 0755); err != nil {
+		log.Fatalf("Failed to create checkpoint directory: %v", err)
 	}
 
 	// Perform recovery on startup
