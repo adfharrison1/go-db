@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -85,6 +86,12 @@ func (cm *CheckpointManager) Checkpoint() error {
 	if err := cm.cleanupOldWALFiles(); err != nil {
 		// Log but don't fail checkpoint
 		fmt.Printf("Failed to cleanup old WAL files: %v\n", err)
+	}
+
+	// Clean up old checkpoint files
+	if err := cm.cleanupOldCheckpointFiles(); err != nil {
+		// Log but don't fail checkpoint
+		fmt.Printf("Failed to cleanup old checkpoint files: %v\n", err)
 	}
 
 	// Rotate WAL file
@@ -235,16 +242,69 @@ func (cm *CheckpointManager) cleanupOldWALFiles() error {
 		return err
 	}
 
-	// Keep only the most recent WAL file
-	if len(walFiles) <= 1 {
+	// Don't cleanup if we have fewer files than retention count
+	if len(walFiles) <= cm.engine.walRetentionCount {
 		return nil
 	}
 
-	// Sort by modification time and keep the most recent
-	// For simplicity, we'll keep all files for now
-	// In production, implement proper WAL file rotation logic
+	// Get current checkpoint LSN to determine which WAL files are safe to delete
+	checkpoint, err := cm.LoadCheckpoint()
+	if err != nil {
+		return fmt.Errorf("failed to load checkpoint for WAL cleanup: %w", err)
+	}
+
+	// If no checkpoint exists, don't delete any WAL files
+	if checkpoint == nil {
+		return nil
+	}
+
+	// Sort WAL files by modification time (newest first)
+	sort.Slice(walFiles, func(i, j int) bool {
+		infoI, errI := os.Stat(walFiles[i])
+		infoJ, errJ := os.Stat(walFiles[j])
+		if errI != nil || errJ != nil {
+			return false
+		}
+		return infoI.ModTime().After(infoJ.ModTime())
+	})
+
+	// Keep the most recent files up to retention count
+	filesToDelete := walFiles[cm.engine.walRetentionCount:]
+
+	// Only delete files that are older than the checkpoint
+	for _, file := range filesToDelete {
+		// Check if this WAL file is safe to delete
+		if cm.isWALFileSafeToDelete(file, checkpoint.LSN) {
+			if err := os.Remove(file); err != nil {
+				fmt.Printf("Failed to delete WAL file %s: %v\n", file, err)
+			} else {
+				fmt.Printf("Deleted old WAL file: %s\n", filepath.Base(file))
+			}
+		}
+	}
 
 	return nil
+}
+
+// isWALFileSafeToDelete checks if a WAL file is safe to delete
+func (cm *CheckpointManager) isWALFileSafeToDelete(walFile string, checkpointLSN int64) bool {
+	// Read the WAL file to find its max LSN
+	entries, err := cm.engine.walEngine.ReadEntries(walFile)
+	if err != nil {
+		fmt.Printf("Failed to read WAL file %s: %v\n", walFile, err)
+		return false
+	}
+
+	// Find the maximum LSN in this WAL file
+	maxLSN := int64(0)
+	for _, entry := range entries {
+		if entry.LSN > maxLSN {
+			maxLSN = entry.LSN
+		}
+	}
+
+	// WAL file is safe to delete if its max LSN is less than or equal to checkpoint LSN
+	return maxLSN <= checkpointLSN
 }
 
 // LoadCheckpoint loads the latest checkpoint
@@ -268,4 +328,45 @@ func (cm *CheckpointManager) LoadCheckpoint() (*CheckpointData, error) {
 	}
 
 	return &checkpoint, nil
+}
+
+// cleanupOldCheckpointFiles removes old checkpoint files based on retention policy
+func (cm *CheckpointManager) cleanupOldCheckpointFiles() error {
+	// Get all checkpoint files
+	pattern := filepath.Join(cm.engine.checkpointDir, "checkpoint_*.json")
+	checkpointFiles, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("failed to list checkpoint files: %w", err)
+	}
+
+	// Don't cleanup if we have fewer files than retention count
+	if len(checkpointFiles) <= cm.engine.checkpointRetentionCount {
+		return nil
+	}
+
+	// Sort checkpoint files by modification time (newest first)
+	sort.Slice(checkpointFiles, func(i, j int) bool {
+		infoI, errI := os.Stat(checkpointFiles[i])
+		infoJ, errJ := os.Stat(checkpointFiles[j])
+		if errI != nil || errJ != nil {
+			return false
+		}
+		return infoI.ModTime().After(infoJ.ModTime())
+	})
+
+	// Keep the most recent files up to retention count
+	filesToDelete := checkpointFiles[cm.engine.checkpointRetentionCount:]
+
+	// Delete old checkpoint files (but never delete the latest_checkpoint.json symlink)
+	for _, file := range filesToDelete {
+		if filepath.Base(file) != "latest_checkpoint.json" {
+			if err := os.Remove(file); err != nil {
+				fmt.Printf("Failed to delete checkpoint file %s: %v\n", file, err)
+			} else {
+				fmt.Printf("Deleted old checkpoint file: %s\n", filepath.Base(file))
+			}
+		}
+	}
+
+	return nil
 }

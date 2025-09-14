@@ -15,19 +15,22 @@ import (
 // NewStorageEngine creates a new v2 storage engine with WAL
 func NewStorageEngine(options ...StorageOption) *StorageEngine {
 	engine := &StorageEngine{
-		collections:         make(map[string]*CollectionInfo),
-		indexEngine:         indexing.NewIndexEngine(),
-		walDir:              "./wal",
-		dataDir:             ".",
-		checkpointDir:       "./checkpoints",
-		maxMemoryMB:         1024,
-		checkpointInterval:  30 * time.Second,
-		durabilityLevel:     DurabilityOS,
-		maxWALSize:          100 * 1024 * 1024, // 100MB
-		checkpointThreshold: 1000,
-		compressionEnabled:  false,
-		stopChan:            make(chan struct{}),
-		stats:               &StorageStats{},
+		collections:              make(map[string]*CollectionInfo),
+		indexEngine:              indexing.NewIndexEngine(),
+		walDir:                   "./wal",
+		dataDir:                  ".",
+		checkpointDir:            "./checkpoints",
+		maxMemoryMB:              1024,
+		checkpointInterval:       30 * time.Second,
+		durabilityLevel:          DurabilityOS,
+		maxWALSize:               100 * 1024 * 1024, // 100MB
+		checkpointThreshold:      1000,
+		compressionEnabled:       false,
+		walRetentionCount:        5,               // Keep 5 most recent WAL files
+		checkpointRetentionCount: 3,               // Keep 3 most recent checkpoints
+		cleanupInterval:          5 * time.Minute, // Run cleanup every 5 minutes
+		stopChan:                 make(chan struct{}),
+		stats:                    &StorageStats{},
 	}
 
 	// Apply options

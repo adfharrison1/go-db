@@ -26,6 +26,27 @@ func WithCheckpointDir(dir string) StorageOption {
 	}
 }
 
+// WithWALRetentionCount sets how many WAL files to keep
+func WithWALRetentionCount(count int) StorageOption {
+	return func(engine *StorageEngine) {
+		engine.walRetentionCount = count
+	}
+}
+
+// WithCheckpointRetentionCount sets how many checkpoint files to keep
+func WithCheckpointRetentionCount(count int) StorageOption {
+	return func(engine *StorageEngine) {
+		engine.checkpointRetentionCount = count
+	}
+}
+
+// WithCleanupInterval sets how often to run cleanup
+func WithCleanupInterval(interval time.Duration) StorageOption {
+	return func(engine *StorageEngine) {
+		engine.cleanupInterval = interval
+	}
+}
+
 // WithMaxMemory sets the maximum memory usage in MB
 func WithMaxMemory(mb int) StorageOption {
 	return func(engine *StorageEngine) {

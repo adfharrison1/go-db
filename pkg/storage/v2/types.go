@@ -86,6 +86,11 @@ type StorageEngine struct {
 	checkpointThreshold int
 	compressionEnabled  bool
 
+	// Cleanup configuration
+	walRetentionCount        int           // Keep N most recent WAL files
+	checkpointRetentionCount int           // Keep N most recent checkpoints
+	cleanupInterval          time.Duration // How often to run cleanup
+
 	// State management
 	collections   map[string]*CollectionInfo
 	collectionsMu sync.RWMutex
