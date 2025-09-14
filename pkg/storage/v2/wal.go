@@ -162,10 +162,11 @@ func (w *WALEngine) applyDurability() error {
 		// Data is in memory, no additional action needed
 		return nil
 	case DurabilityOS:
-		// Flush to OS page cache
-		return w.walFile.File.Sync()
+		// Flush to OS page cache - no explicit sync needed
+		// The OS will handle flushing to disk when appropriate
+		return nil
 	case DurabilityFull:
-		// Full durability with fsync
+		// Full durability with fsync - force data to disk
 		return w.walFile.File.Sync()
 	default:
 		return fmt.Errorf("unknown durability level: %d", w.durabilityLevel)
