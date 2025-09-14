@@ -26,28 +26,28 @@ GO-DB offers two storage engines optimized for different use cases:
 ### **V1 Engine: Dual-Write (Legacy)**
 
 - **Architecture**: Traditional dual-write to memory + disk
-- **Performance**: ~84 req/s, 3.76s P95 latency
+- **Performance**: ~81 req/s, 3.65s P95 latency (Dual-Write) / ~458 req/s, 171ms P95 (No-Saves)
 - **Safety**: Maximum data safety with immediate persistence
 - **Use Case**: Legacy systems, maximum safety requirements
 
 ### **V2 Engine: Write-Ahead Logging (Recommended)**
 
 - **Architecture**: WAL-based with automatic checkpointing
-- **Performance**: ~250 req/s, 1.2s P95 latency (**3x faster**)
+- **Performance**: ~250 req/s, 630ms P95 latency (**3x faster than Dual-Write**)
 - **Safety**: ACID compliance with crash recovery
 - **Use Case**: Production systems, high-performance applications
 
 ## 📊 Engine Comparison
 
-| Feature               | V1 Dual-Write | V2 WAL     | Winner |
-| --------------------- | ------------- | ---------- | ------ |
-| **Write Performance** | ~84 req/s     | ~250 req/s | 🏆 V2  |
-| **P95 Latency**       | ~3.76s        | ~1.2s      | 🏆 V2  |
-| **Memory Usage**      | 100%          | 70-80%     | 🏆 V2  |
-| **Data Safety**       | Maximum       | ACID       | 🤝 Tie |
-| **Recovery**          | Manual        | Automatic  | 🏆 V2  |
-| **Disk I/O**          | High          | Low        | 🏆 V2  |
-| **Cleanup**           | Manual        | Automatic  | 🏆 V2  |
+| Feature               | V1 Dual-Write | V1 No-Saves | V2 WAL     | Winner         |
+| --------------------- | ------------- | ----------- | ---------- | -------------- |
+| **Write Performance** | ~81 req/s     | ~458 req/s  | ~250 req/s | 🏆 V1 No-Saves |
+| **P95 Latency**       | ~3.65s        | ~171ms      | ~630ms     | 🏆 V1 No-Saves |
+| **Memory Usage**      | 100%          | 100%        | 70-80%     | 🏆 V2          |
+| **Data Safety**       | Maximum       | Minimal     | ACID       | 🤝 V1/V2       |
+| **Recovery**          | Manual        | Manual      | Automatic  | 🏆 V2          |
+| **Disk I/O**          | High          | None        | Low        | 🏆 V1 No-Saves |
+| **Cleanup**           | Manual        | Manual      | Automatic  | 🏆 V2          |
 
 ## ⚙️ Command Line Options
 
@@ -124,8 +124,8 @@ go run cmd/go-db.go -v2 -max-memory 4096
 go run cmd/go-db.go
 ```
 
-- **Throughput**: ~84 req/s
-- **P95 Latency**: ~3.76s
+- **Throughput**: ~81 req/s
+- **P95 Latency**: ~3.65s
 - **Data Safety**: Maximum
 - **Use Case**: Production, critical data
 
@@ -135,8 +135,8 @@ go run cmd/go-db.go
 go run cmd/go-db.go -no-saves
 ```
 
-- **Throughput**: ~299 req/s
-- **P95 Latency**: ~445ms
+- **Throughput**: ~458 req/s
+- **P95 Latency**: ~171ms
 - **Data Safety**: Minimal (shutdown only)
 - **Use Case**: Caching, analytics, testing
 
@@ -382,23 +382,27 @@ docker-compose run --rm go-db -v2 -max-memory 2048 -port 8080
 ```bash
 # Dual-write mode
 go run cmd/go-db.go
-# Throughput: ~84 req/s, P95: ~3.76s
+# Throughput: ~81 req/s, P95: ~3.65s
 
 # No-saves mode
 go run cmd/go-db.go -no-saves
-# Throughput: ~299 req/s, P95: ~445ms
+# Throughput: ~458 req/s, P95: ~171ms
 ```
 
 ### **V2 Engine Performance**
 
 ```bash
-# Default configuration
+# Default configuration (OS Durability)
 go run cmd/go-db.go -v2
-# Throughput: ~250 req/s, P95: ~1.2s
+# Throughput: ~257 req/s, P95: ~630ms
 
-# High memory configuration
-go run cmd/go-db.go -v2 -max-memory 4096
-# Throughput: ~300+ req/s, P95: ~800ms
+# Memory Durability (Fastest)
+go run cmd/go-db.go -v2 -durability memory
+# Throughput: ~253 req/s, P95: ~632ms
+
+# Full Durability (Safest)
+go run cmd/go-db.go -v2 -durability full
+# Throughput: ~242 req/s, P95: ~683ms
 ```
 
 ## 🔧 Configuration Examples

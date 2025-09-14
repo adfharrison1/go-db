@@ -76,8 +76,17 @@ for config_pair in "${configs[@]}"; do
     echo "🏃 Running optimized stress test..."
     result_file="$RESULTS_DIR/${service_name}-results.txt"
     
+    # Choose stress test based on engine type
+    if [[ "$service_name" == *"v2"* ]]; then
+        stress_test="stress-test-optimized-v2.js"
+        echo "   Using V2-specific stress test (unique ID format)"
+    else
+        stress_test="stress-test-optimized.js"
+        echo "   Using V1 stress test (numeric ID format)"
+    fi
+    
     # Capture both stdout and stderr, but show progress
-    if k6 run stress-test-optimized.js 2>&1 | tee "$result_file"; then
+    if k6 run "$stress_test" 2>&1 | tee "$result_file"; then
         echo "✅ Test completed successfully"
         
         # Extract key metrics
