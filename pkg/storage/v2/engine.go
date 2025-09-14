@@ -1,9 +1,11 @@
 package v2
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/adfharrison1/go-db/pkg/domain"
@@ -331,12 +333,17 @@ func (se *StorageEngine) CreateCollection(collName string) error {
 		return nil // Collection already exists
 	}
 
+	// Create _id index automatically (like v1 engine)
+	if err := se.indexEngine.CreateIndex(collName, "_id"); err != nil {
+		return fmt.Errorf("failed to create _id index: %w", err)
+	}
+
 	se.collections[collName] = &CollectionInfo{
 		Name:          collName,
 		State:         CollectionStateLoaded,
 		DocumentCount: 0,
 		LastModified:  time.Now(),
-		Indexes:       []string{},
+		Indexes:       []string{"_id"}, // Include _id index
 	}
 
 	// Also create the collection in the memory manager
@@ -372,15 +379,122 @@ func (se *StorageEngine) GetCollection(collName string) (*domain.Collection, err
 
 // LoadCollectionMetadata implements domain.StorageEngine
 func (se *StorageEngine) LoadCollectionMetadata(filename string) error {
-	// This would load collection metadata from disk
-	// For now, we'll implement a basic version
-	return nil
+	// Load checkpoint data from the specified file
+	return se.loadFromCheckpoint(filename)
 }
 
 // SaveToFile implements domain.StorageEngine
 func (se *StorageEngine) SaveToFile(filename string) error {
-	// Trigger a checkpoint to save all data to disk
-	return se.checkpointMgr.Checkpoint()
+	// Create a custom checkpoint to the specified filename
+	return se.saveToSpecificFile(filename)
+}
+
+// loadFromCheckpoint loads data from a checkpoint file
+func (se *StorageEngine) loadFromCheckpoint(filename string) error {
+	// Read checkpoint file
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("failed to read checkpoint file: %w", err)
+	}
+
+	// Parse checkpoint data
+	var checkpointData CheckpointData
+	if err := json.Unmarshal(data, &checkpointData); err != nil {
+		return fmt.Errorf("failed to parse checkpoint data: %w", err)
+	}
+
+	// Load collections into memory
+	se.collectionsMu.Lock()
+	defer se.collectionsMu.Unlock()
+
+	for collName, collData := range checkpointData.Collections {
+		// Create collection info
+		se.collections[collName] = &CollectionInfo{
+			Name:          collData.Name,
+			State:         CollectionStateLoaded,
+			DocumentCount: collData.DocumentCount,
+			LastModified:  collData.LastModified,
+			Indexes:       collData.Indexes,
+		}
+
+		// Load documents into memory manager
+		se.memoryMgr.mu.Lock()
+		// Convert interface{} to domain.Document
+		documents := make(map[string]domain.Document)
+		for docID, doc := range collData.Documents {
+			if docMap, ok := doc.(map[string]interface{}); ok {
+				documents[docID] = domain.Document(docMap)
+			}
+		}
+		se.memoryMgr.collections[collName] = &Collection{
+			Name:      collData.Name,
+			Documents: documents,
+			CreatedAt: collData.LastModified,
+		}
+		se.memoryMgr.mu.Unlock()
+
+		// Rebuild indexes
+		for _, fieldName := range collData.Indexes {
+			if err := se.indexEngine.CreateIndex(collName, fieldName); err != nil {
+				// Log error but continue
+				fmt.Printf("Failed to recreate index %s on collection %s: %v\n", fieldName, collName, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// saveToSpecificFile saves data to a specific filename
+func (se *StorageEngine) saveToSpecificFile(filename string) error {
+	// Get all collections data
+	se.collectionsMu.RLock()
+	collections := make(map[string]*CollectionData)
+
+	for name, collInfo := range se.collections {
+		// Get documents from memory manager
+		documents, err := se.memoryMgr.GetAllDocuments(name)
+		if err != nil {
+			se.collectionsMu.RUnlock()
+			return fmt.Errorf("failed to get documents for collection %s: %w", name, err)
+		}
+
+		collections[name] = &CollectionData{
+			Name:          name,
+			DocumentCount: collInfo.DocumentCount,
+			LastModified:  collInfo.LastModified,
+			Indexes:       collInfo.Indexes,
+			Documents:     documents,
+		}
+	}
+	se.collectionsMu.RUnlock()
+
+	// Create checkpoint data
+	checkpointData := &CheckpointData{
+		Timestamp:   time.Now(),
+		Collections: collections,
+		Indexes:     se.indexEngine.ExportIndexes(),
+		LSN:         se.walEngine.GetCurrentLSN(),
+	}
+
+	// Serialize and write to file
+	jsonData, err := json.MarshalIndent(checkpointData, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal checkpoint data: %w", err)
+	}
+
+	// Write to temporary file first
+	tempFile := filename + ".tmp"
+	if err := os.WriteFile(tempFile, jsonData, 0644); err != nil {
+		return fmt.Errorf("failed to write temporary file: %w", err)
+	}
+
+	// Atomic rename
+	if err := os.Rename(tempFile, filename); err != nil {
+		return fmt.Errorf("failed to rename file: %w", err)
+	}
+
+	return nil
 }
 
 // GetMemoryStats implements domain.StorageEngine
@@ -425,15 +539,19 @@ func (se *StorageEngine) SaveCollectionAfterTransaction(collName string) error {
 
 // GetIndexes implements domain.StorageEngine
 func (se *StorageEngine) GetIndexes(collName string) ([]string, error) {
-	se.collectionsMu.RLock()
-	collInfo, exists := se.collections[collName]
-	se.collectionsMu.RUnlock()
+	// Get indexes from the index engine (returns empty slice for non-existent collections)
+	return se.indexEngine.GetIndexes(collName)
+}
 
-	if !exists {
-		return nil, fmt.Errorf("collection %s not found", collName)
-	}
+// IsNoSavesEnabled implements domain.StorageEngine (for compatibility)
+func (se *StorageEngine) IsNoSavesEnabled() bool {
+	// v2 storage engine doesn't have no-saves mode, always returns false
+	return false
+}
 
-	return collInfo.Indexes, nil
+// GetIndexEngine returns the index engine instance
+func (se *StorageEngine) GetIndexEngine() domain.IndexEngine {
+	return se.indexEngine
 }
 
 // CreateIndex implements domain.StorageEngine
@@ -527,7 +645,9 @@ func (se *StorageEngine) UpdateIndex(collName, fieldName string) error {
 
 func (se *StorageEngine) generateDocumentID(collName string) string {
 	// Simple ID generation - in production, use UUID or similar
-	return fmt.Sprintf("%s_%d", collName, time.Now().UnixNano())
+	// Use atomic counter to ensure uniqueness even in rapid succession
+	counter := atomic.AddInt64(&se.idCounter, 1)
+	return fmt.Sprintf("%s_%d_%d", collName, time.Now().UnixNano(), counter)
 }
 
 func (se *StorageEngine) updateCollectionMetadata(collName string, delta int64) {
@@ -592,5 +712,11 @@ func (se *StorageEngine) buildIndexForCollection(collName, fieldName string) err
 
 // updateIndexesForDocument updates all indexes when a document changes
 func (se *StorageEngine) updateIndexesForDocument(collName, docID string, oldDoc, newDoc domain.Document) {
+	// Ensure _id index exists
+	if err := se.indexEngine.CreateIndex(collName, "_id"); err != nil {
+		// Index might already exist, which is fine
+	}
+
+	// Update all indexes
 	se.indexEngine.UpdateIndexForDocument(collName, docID, oldDoc, newDoc)
 }

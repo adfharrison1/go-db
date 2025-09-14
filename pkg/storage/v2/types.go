@@ -97,6 +97,9 @@ type StorageEngine struct {
 	// Statistics
 	stats   *StorageStats
 	statsMu sync.RWMutex
+
+	// ID generation
+	idCounter int64
 }
 
 // StorageStats holds performance and health statistics

@@ -13,17 +13,19 @@ import (
 
 	"github.com/adfharrison1/go-db/pkg/server"
 	"github.com/adfharrison1/go-db/pkg/storage"
+	v2 "github.com/adfharrison1/go-db/pkg/storage/v2"
 )
 
 func main() {
 	// Command line flags
 	var (
-		port      = flag.String("port", "8080", "Server port")
-		dataFile  = flag.String("data-file", "go-db_data.godb", "Data file path for persistence")
-		dataDir   = flag.String("data-dir", ".", "Data directory for storage")
-		maxMemory = flag.Int("max-memory", 1024, "Maximum memory usage in MB")
-		noSaves   = flag.Bool("no-saves", false, "Disable automatic disk writes (only save on shutdown)")
-		showHelp  = flag.Bool("help", false, "Show help message")
+		port         = flag.String("port", "8080", "Server port")
+		dataFile     = flag.String("data-file", "go-db_data.godb", "Data file path for persistence")
+		dataDir      = flag.String("data-dir", ".", "Data directory for storage")
+		maxMemory    = flag.Int("max-memory", 1024, "Maximum memory usage in MB")
+		noSaves      = flag.Bool("no-saves", false, "Disable automatic disk writes (only save on shutdown)")
+		useV2Storage = flag.Bool("v2", false, "Use v2 storage engine with WAL")
+		showHelp     = flag.Bool("help", false, "Show help message")
 	)
 
 	flag.Usage = func() {
@@ -35,6 +37,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  %s                                    # Start with defaults (dual-write mode)\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s -port 9090 -max-memory 2048       # Custom port and memory\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s -no-saves                          # Disable automatic disk writes (shutdown only)\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -v2                                # Use v2 storage engine with WAL\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s -data-dir /tmp/go-db              # Custom data directory\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\nPersistence Options:\n")
 		fmt.Fprintf(os.Stderr, "  Dual-write mode: Data saved to memory and disk immediately (default)\n")
@@ -48,31 +51,60 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Build storage options based on flags
-	var storageOptions []storage.StorageOption
+	var srv *server.Server
 
-	// Set data directory
-	if *dataDir != "." {
-		storageOptions = append(storageOptions, storage.WithDataDir(*dataDir))
-		log.Printf("INFO: Using data directory: %s", *dataDir)
-	}
+	if *useV2Storage {
+		// Build v2 storage options
+		var v2Options []v2.StorageOption
 
-	// Set max memory
-	if *maxMemory != 1024 {
-		storageOptions = append(storageOptions, storage.WithMaxMemory(*maxMemory))
-		log.Printf("INFO: Max memory set to: %d MB", *maxMemory)
-	}
+		// Set data directory
+		if *dataDir != "." {
+			v2Options = append(v2Options, v2.WithDataDir(*dataDir))
+			log.Printf("INFO: Using data directory: %s", *dataDir)
+		}
 
-	// Set no-saves option
-	if *noSaves {
-		storageOptions = append(storageOptions, storage.WithNoSaves(true))
-		log.Printf("INFO: No-saves mode enabled - data only saved on shutdown")
+		// Set max memory
+		if *maxMemory != 1024 {
+			v2Options = append(v2Options, v2.WithMaxMemory(*maxMemory))
+			log.Printf("INFO: Max memory set to: %d MB", *maxMemory)
+		}
+
+		// Set WAL directory (default to data-dir/wal)
+		walDir := *dataDir + "/wal"
+		if *dataDir == "." {
+			walDir = "./wal"
+		}
+		v2Options = append(v2Options, v2.WithWALDir(walDir))
+
+		log.Printf("INFO: Using v2 storage engine with WAL")
+		srv = server.NewServerV2(v2Options...)
 	} else {
-		log.Printf("INFO: Dual-write mode enabled - data saved to memory and disk immediately")
-	}
+		// Build v1 storage options
+		var storageOptions []storage.StorageOption
 
-	// Create a new server with storage options
-	srv := server.NewServer(storageOptions...)
+		// Set data directory
+		if *dataDir != "." {
+			storageOptions = append(storageOptions, storage.WithDataDir(*dataDir))
+			log.Printf("INFO: Using data directory: %s", *dataDir)
+		}
+
+		// Set max memory
+		if *maxMemory != 1024 {
+			storageOptions = append(storageOptions, storage.WithMaxMemory(*maxMemory))
+			log.Printf("INFO: Max memory set to: %d MB", *maxMemory)
+		}
+
+		// Set no-saves option
+		if *noSaves {
+			storageOptions = append(storageOptions, storage.WithNoSaves(true))
+			log.Printf("INFO: No-saves mode enabled - data only saved on shutdown")
+		} else {
+			log.Printf("INFO: Dual-write mode enabled - data saved to memory and disk immediately")
+		}
+
+		log.Printf("INFO: Using v1 storage engine")
+		srv = server.NewServer(storageOptions...)
+	}
 	defer srv.StopBackgroundWorkers() // Ensure cleanup
 
 	// Initialize database from file

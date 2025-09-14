@@ -184,11 +184,30 @@ func (mm *MemoryManager) FindAll(collName string, filter map[string]interface{},
 		filteredDocs = filteredDocs[start:end]
 	}
 
+	// Generate cursors for pagination
+	var nextCursor, prevCursor string
+	if end < total && len(filteredDocs) > 0 {
+		// Use the last document's ID as next cursor
+		lastDoc := filteredDocs[len(filteredDocs)-1]
+		if docID, ok := lastDoc["_id"].(string); ok {
+			nextCursor = docID
+		}
+	}
+	if offset > 0 && len(filteredDocs) > 0 {
+		// Use the first document's ID as prev cursor
+		firstDoc := filteredDocs[0]
+		if docID, ok := firstDoc["_id"].(string); ok {
+			prevCursor = docID
+		}
+	}
+
 	return &domain.PaginationResult{
-		Documents: filteredDocs,
-		Total:     int64(total),
-		HasNext:   end < total,
-		HasPrev:   offset > 0,
+		Documents:  filteredDocs,
+		Total:      int64(total),
+		HasNext:    end < total,
+		HasPrev:    offset > 0,
+		NextCursor: nextCursor,
+		PrevCursor: prevCursor,
 	}, nil
 }
 
@@ -221,7 +240,7 @@ func (mm *MemoryManager) FindAllStream(collName string, filter map[string]interf
 	return ch, nil
 }
 
-// BatchUpdateDocuments updates multiple documents in memory
+// BatchUpdateDocuments updates multiple documents in memory atomically
 func (mm *MemoryManager) BatchUpdateDocuments(collName string, updates []domain.BatchUpdateOperation) ([]domain.Document, error) {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
@@ -232,14 +251,24 @@ func (mm *MemoryManager) BatchUpdateDocuments(collName string, updates []domain.
 		return nil, fmt.Errorf("collection %s not found", collName)
 	}
 
-	var results []domain.Document
-
-	for _, update := range updates {
-		// Get existing document
-		existing, exists := coll.Documents[update.ID]
-		if !exists {
-			continue // Skip if document doesn't exist
+	// Validate all operations first (atomic behavior)
+	for i, update := range updates {
+		if update.ID == "" {
+			return nil, fmt.Errorf("operation %d: document ID cannot be empty", i)
 		}
+
+		// Check if document exists
+		_, exists := coll.Documents[update.ID]
+		if !exists {
+			return nil, fmt.Errorf("operation %d: document with id %s not found", i, update.ID)
+		}
+	}
+
+	// All validations passed, now apply updates atomically
+	var results []domain.Document
+	for _, update := range updates {
+		// Get existing document (we know it exists from validation above)
+		existing := coll.Documents[update.ID]
 
 		// Merge updates
 		updated := mm.mergeDocuments(existing, update.Updates)
