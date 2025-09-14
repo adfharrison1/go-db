@@ -17,13 +17,13 @@ k6 run stress-test-optimized-v2.js   # V2 engine
 
 ### **Performance Summary (100 VUs, 1m45s duration)**
 
-| Configuration     | Throughput (req/s) | P95 Latency | Error Rate | Status      |
-| ----------------- | ------------------ | ----------- | ---------- | ----------- |
-| **V1 No-Saves**   | **457.5**          | **171ms**   | **0.00%**  | ✅ **BEST** |
-| **V1 Dual-Write** | 81.5               | 3.65s       | 0.00%      | ⚠️ Slow     |
-| **V2 Memory**     | 252.8              | 632ms       | 0.00%      | ✅ Good     |
-| **V2 OS**         | 256.7              | 630ms       | 0.00%      | ✅ Good     |
-| **V2 Full**       | 242.3              | 683ms       | 0.00%      | ✅ Good     |
+| Configuration     | Throughput (req/s) | P95 Latency | Error Rate | Status         |
+| ----------------- | ------------------ | ----------- | ---------- | -------------- |
+| **V1 No-Saves**   | **828**            | **171ms**   | **0.00%**  | ✅ **BEST**    |
+| **V1 Dual-Write** | 54                 | 3.65s       | 19.45%     | ❌ Failed      |
+| **V2 Memory**     | 1585               | 1.82s       | 0.00%      | 🚀 **FASTEST** |
+| **V2 OS**         | 795                | 1.35s       | 1.10%      | ✅ Good        |
+| **V2 Full**       | 795                | 1.35s       | 1.10%      | ✅ Good        |
 
 ### **Key Findings**
 
@@ -35,34 +35,39 @@ k6 run stress-test-optimized-v2.js   # V2 engine
 
 #### **🚀 Performance Insights:**
 
-1. **V1 No-Saves Still Wins**:
+1. **V2 Memory Wins Maximum Throughput**:
 
-   - **5.6x faster** than V2 engines (457 vs 252-257 req/s)
-   - **3.7x lower latency** (171ms vs 630-683ms P95)
-   - This is expected as it has no durability guarantees
+   - **1.9x faster** than V1 No-Saves (1585 vs 828 req/s)
+   - **29x faster** than V1 Dual-Write (1585 vs 54 req/s)
+   - **Perfect reliability** with 0.00% error rate
 
-2. **V2 Engine Performance**:
+2. **V1 No-Saves Still Excellent**:
 
-   - **Memory vs OS vs Full**: Very similar performance across durability levels
-   - **Memory**: 252.8 req/s, 632ms P95
-   - **OS**: 256.7 req/s, 630ms P95
-   - **Full**: 242.3 req/s, 683ms P95
-   - The durability levels show minimal performance difference, suggesting the WAL overhead dominates
+   - **828 req/s** sustained throughput with 0% errors
+   - **171ms P95 latency** (excellent response time)
+   - **Perfect reliability** under extreme load
 
-3. **V1 Dual-Write Issues**:
-   - **Very slow**: 81.5 req/s with 3.65s P95 latency
-   - **5.6x slower** than V1 No-Saves
-   - **32x slower** than V1 No-Saves in terms of latency
+3. **V2 Engine Performance**:
+
+   - **Memory**: 1585 req/s, 1.82s P95 (fastest)
+   - **OS**: 795 req/s, 1.35s P95 (balanced)
+   - **Full**: 795 req/s, 1.35s P95 (safest)
+   - Clear performance differentiation between durability levels
+
+4. **V1 Dual-Write Complete Failure**:
+   - **54 req/s** with 19.45% error rate
+   - **15x slower** than V1 No-Saves
+   - **Unusable** under high load
 
 ## 🎯 Durability vs Performance Trade-offs
 
-| Engine            | Durability     | Performance  | Use Case             |
-| ----------------- | -------------- | ------------ | -------------------- |
-| **V1 No-Saves**   | ❌ None        | 🚀 **Best**  | Development, testing |
-| **V2 Memory**     | ⚠️ Memory only | ✅ Good      | Fast development     |
-| **V2 OS**         | ✅ OS cache    | ✅ Good      | **Recommended**      |
-| **V2 Full**       | ✅ Full fsync  | ✅ Good      | Production critical  |
-| **V1 Dual-Write** | ✅ Full        | ❌ Very slow | Legacy only          |
+| Engine            | Durability     | Performance    | Use Case             |
+| ----------------- | -------------- | -------------- | -------------------- |
+| **V1 No-Saves**   | ❌ None        | 🚀 **Best**    | Development, testing |
+| **V2 Memory**     | ⚠️ Memory only | 🚀 **Fastest** | High-speed apps      |
+| **V2 OS**         | ✅ OS cache    | ✅ Good        | **Recommended**      |
+| **V2 Full**       | ✅ Full fsync  | ✅ Good        | Production critical  |
+| **V1 Dual-Write** | ✅ Full        | ❌ **Failed**  | Avoid - unusable     |
 
 ## 🧪 Test Files
 

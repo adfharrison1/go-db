@@ -26,14 +26,14 @@ GO-DB offers two storage engines optimized for different use cases:
 ### **V1 Engine: Dual-Write (Legacy)**
 
 - **Architecture**: Traditional dual-write to memory + disk
-- **Performance**: ~81 req/s, 3.65s P95 latency (Dual-Write) / ~458 req/s, 171ms P95 (No-Saves)
+- **Performance**: ~54 req/s, 3.65s P95 latency (Dual-Write) / ~828 req/s, 171ms P95 (No-Saves)
 - **Safety**: Maximum data safety with immediate persistence
 - **Use Case**: Legacy systems, maximum safety requirements
 
 ### **V2 Engine: Write-Ahead Logging (Recommended)**
 
 - **Architecture**: WAL-based with automatic checkpointing
-- **Performance**: ~250 req/s, 630ms P95 latency (**3x faster than Dual-Write**)
+- **Performance**: ~795 req/s, 630ms P95 latency (**15x faster than Dual-Write**)
 - **Safety**: ACID compliance with crash recovery
 - **Use Case**: Production systems, high-performance applications
 
@@ -41,7 +41,8 @@ GO-DB offers two storage engines optimized for different use cases:
 
 | Feature               | V1 Dual-Write | V1 No-Saves | V2 WAL     | Winner         |
 | --------------------- | ------------- | ----------- | ---------- | -------------- |
-| **Write Performance** | ~81 req/s     | ~458 req/s  | ~250 req/s | 🏆 V1 No-Saves |
+| **Write Performance** | ~54 req/s     | ~828 req/s  | ~795 req/s | 🏆 V1 No-Saves |
+| **Max Throughput**    | 54 req/s      | 828 req/s   | 1585 req/s | 🏆 V2 Memory   |
 | **P95 Latency**       | ~3.65s        | ~171ms      | ~630ms     | 🏆 V1 No-Saves |
 | **Memory Usage**      | 100%          | 100%        | 70-80%     | 🏆 V2          |
 | **Data Safety**       | Maximum       | Minimal     | ACID       | 🤝 V1/V2       |
@@ -124,7 +125,7 @@ go run cmd/go-db.go -v2 -max-memory 4096
 go run cmd/go-db.go
 ```
 
-- **Throughput**: ~81 req/s
+- **Throughput**: ~54 req/s
 - **P95 Latency**: ~3.65s
 - **Data Safety**: Maximum
 - **Use Case**: Production, critical data
@@ -135,7 +136,7 @@ go run cmd/go-db.go
 go run cmd/go-db.go -no-saves
 ```
 
-- **Throughput**: ~458 req/s
+- **Throughput**: ~828 req/s
 - **P95 Latency**: ~171ms
 - **Data Safety**: Minimal (shutdown only)
 - **Use Case**: Caching, analytics, testing
@@ -382,11 +383,11 @@ docker-compose run --rm go-db -v2 -max-memory 2048 -port 8080
 ```bash
 # Dual-write mode
 go run cmd/go-db.go
-# Throughput: ~81 req/s, P95: ~3.65s
+# Throughput: ~54 req/s, P95: ~3.65s
 
 # No-saves mode
 go run cmd/go-db.go -no-saves
-# Throughput: ~458 req/s, P95: ~171ms
+# Throughput: ~828 req/s, P95: ~171ms
 ```
 
 ### **V2 Engine Performance**
@@ -394,15 +395,15 @@ go run cmd/go-db.go -no-saves
 ```bash
 # Default configuration (OS Durability)
 go run cmd/go-db.go -v2
-# Throughput: ~257 req/s, P95: ~630ms
+# Throughput: ~795 req/s, P95: ~630ms
 
 # Memory Durability (Fastest)
 go run cmd/go-db.go -v2 -durability memory
-# Throughput: ~253 req/s, P95: ~632ms
+# Throughput: ~1585 req/s, P95: ~1.82s
 
 # Full Durability (Safest)
 go run cmd/go-db.go -v2 -durability full
-# Throughput: ~242 req/s, P95: ~683ms
+# Throughput: ~795 req/s, P95: ~630ms
 ```
 
 ## 🔧 Configuration Examples
