@@ -84,10 +84,39 @@ k6 run stress-test-optimized-v2.js   # V2 engine
 ### **Configuration Scripts**
 
 - **`compare-configs.sh`**: Automated benchmark comparison
+- **`compare-configs-max-thruput.sh`**: Maximum throughput comparison
 - **`run-all-tests.sh`**: Run all individual tests
 - **`analyze-results.js`**: Results analysis tool
 
+### **Persistence Tests**
+
+- **`v2-persistence-test.sh`**: V2 engine data persistence test
+- **`create-test-data.js`**: Creates 1000 test documents
+- **`validate-test-data.js`**: Validates document integrity
+
 ## 🔧 Running Benchmarks
+
+### **V2 Persistence Test**
+
+Test data persistence across container restarts:
+
+```bash
+# Run complete persistence test
+./v2-persistence-test.sh
+
+# Manual steps (if needed)
+node create-test-data.js      # Create 1000 test documents
+node validate-test-data.js    # Validate data integrity
+```
+
+**What it tests:**
+
+- ✅ Creates 1000 documents using batch insert
+- ✅ Verifies data integrity before restart
+- ✅ Stops and restarts the container
+- ✅ Verifies all data persists after restart
+- ✅ Validates document structure and content
+- ✅ Shows WAL and checkpoint file evidence
 
 ### **Automated Comparison**
 
@@ -196,6 +225,42 @@ When adding new benchmarks:
 3. Document expected performance ranges
 4. Update this README with results
 5. Test with both V1 and V2 engines
+
+## 🛠️ Troubleshooting
+
+### **Persistence Test Issues**
+
+**Container won't start:**
+
+```bash
+# Check if port 8080 is in use
+lsof -i :8080
+
+# Kill any existing containers
+docker stop $(docker ps -q) 2>/dev/null || true
+docker rm $(docker ps -aq) 2>/dev/null || true
+```
+
+**Data validation fails:**
+
+```bash
+# Check container logs
+docker logs go-db-v2-persistence-test
+
+# Verify WAL and checkpoint files
+ls -la test-data/wal/
+ls -la test-data/checkpoints/
+```
+
+**Clean up test data:**
+
+```bash
+# Remove test data directory
+rm -rf test-data/
+
+# Remove expected data file
+rm -f expected-data.json
+```
 
 ## 🔍 Analysis Tools
 

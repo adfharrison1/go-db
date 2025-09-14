@@ -54,15 +54,27 @@ GO-DB offers two storage engines optimized for different use cases:
 
 ### **Basic Options**
 
-| Flag          | Default           | Description        | V1  | V2  |
-| ------------- | ----------------- | ------------------ | --- | --- |
-| `-port`       | `8080`            | Server port        | ✅  | ✅  |
-| `-data-file`  | `go-db_data.godb` | Data file path     | ✅  | ❌  |
-| `-data-dir`   | `.`               | Data directory     | ✅  | ✅  |
-| `-max-memory` | `1024`            | Max memory (MB)    | ✅  | ✅  |
-| `-no-saves`   | `false`           | Disable auto-saves | ✅  | ❌  |
-| `-v2`         | `false`           | Use V2 WAL engine  | ❌  | ✅  |
-| `-help`       | `false`           | Show help          | ✅  | ✅  |
+| Flag              | Default                | Description        | V1  | V2  |
+| ----------------- | ---------------------- | ------------------ | --- | --- |
+| `-port`           | `8080`                 | Server port        | ✅  | ✅  |
+| `-data-file`      | `go-db_data.godb`      | Data file path     | ✅  | ❌  |
+| `-data-dir`       | `.`                    | Data directory     | ✅  | ✅  |
+| `-max-memory`     | `1024`                 | Max memory (MB)    | ✅  | ✅  |
+| `-no-saves`       | `false`                | Disable auto-saves | ✅  | ❌  |
+| `-v2`             | `false`                | Use V2 WAL engine  | ❌  | ✅  |
+| `-durability`     | `os`                   | Durability level   | ❌  | ✅  |
+| `-wal-dir`        | `data-dir/wal`         | WAL directory      | ❌  | ✅  |
+| `-checkpoint-dir` | `data-dir/checkpoints` | Checkpoint dir     | ❌  | ✅  |
+| `-help`           | `false`                | Show help          | ✅  | ✅  |
+
+### **Durability Levels (V2 Only)**
+
+| Level    | Description    | Performance | Safety  | Use Case       |
+| -------- | -------------- | ----------- | ------- | -------------- |
+| `none`   | No persistence | Fastest     | None    | Testing only   |
+| `memory` | Memory only    | Fast        | Low     | Temporary data |
+| `os`     | OS page cache  | Good        | Medium  | **Default**    |
+| `full`   | Full fsync     | Slower      | Highest | Critical data  |
 
 ### **V1-Specific Options**
 
@@ -80,11 +92,23 @@ go run cmd/go-db.go -port 9090 -max-memory 2048 -data-dir /var/lib/go-db
 ### **V2-Specific Options**
 
 ```bash
-# V2 Engine - Default Configuration
+# V2 Engine - Default Configuration (OS Durability)
 go run cmd/go-db.go -v2
 
+# V2 Engine - Memory Durability (Fastest)
+go run cmd/go-db.go -v2 -durability memory
+
+# V2 Engine - Full Durability (Safest)
+go run cmd/go-db.go -v2 -durability full
+
 # V2 Engine - Custom Configuration
-go run cmd/go-db.go -v2 -port 9090 -max-memory 2048 -data-dir /var/lib/go-db
+go run cmd/go-db.go -v2 \
+  -port 9090 \
+  -max-memory 2048 \
+  -data-dir /var/lib/go-db \
+  -wal-dir /var/lib/go-db/wal \
+  -checkpoint-dir /var/lib/go-db/checkpoints \
+  -durability os
 
 # V2 Engine - High Performance
 go run cmd/go-db.go -v2 -max-memory 4096
@@ -193,7 +217,7 @@ go run cmd/go-db.go -no-saves
 
 ## 🔌 API Reference
 
-Both engines provide identical REST APIs:
+Both engines use the same REST API:
 
 ### **Collection Operations**
 
@@ -411,33 +435,78 @@ go run cmd/go-db.go -v2 -durability full
 ### **V1 Engine Configuration**
 
 ```bash
-# Production setup
+# Dual-Write Mode (Default - Maximum Safety)
 go run cmd/go-db.go \
   -port 8080 \
   -data-dir /var/lib/go-db \
-  -max-memory 2048
+  -max-memory 2048 \
+  -no-saves=false
 
-# High-performance setup
+# No-Saves Mode (Maximum Performance)
 go run cmd/go-db.go \
   -port 8080 \
-  -no-saves \
-  -max-memory 4096
+  -data-dir /var/lib/go-db \
+  -max-memory 4096 \
+  -no-saves=true
 ```
 
 ### **V2 Engine Configuration**
 
 ```bash
-# Production setup
+# Memory Durability (Fastest)
 go run cmd/go-db.go -v2 \
-  -port 8080 \
+  -durability memory \
   -data-dir /var/lib/go-db \
-  -max-memory 2048
+  -wal-dir /var/lib/go-db/wal \
+  -checkpoint-dir /var/lib/go-db/checkpoints
 
-# High-performance setup
+# OS Durability (Default - Balanced)
 go run cmd/go-db.go -v2 \
-  -port 8080 \
-  -max-memory 4096
+  -durability os \
+  -data-dir /var/lib/go-db \
+  -wal-dir /var/lib/go-db/wal \
+  -checkpoint-dir /var/lib/go-db/checkpoints
+
+# Full Durability (Safest)
+go run cmd/go-db.go -v2 \
+  -durability full \
+  -data-dir /var/lib/go-db \
+  -wal-dir /var/lib/go-db/wal \
+  -checkpoint-dir /var/lib/go-db/checkpoints
 ```
+
+## 🐳 Docker Usage
+
+### **Docker Compose Configurations**
+
+The project includes pre-configured Docker Compose setups for easy testing and benchmarking:
+
+```bash
+# V1 Engine - Dual-Write Mode (Maximum Safety)
+docker-compose -f docker-compose-configs.yml up go-db-dual-write
+
+# V1 Engine - No-Saves Mode (Maximum Performance)
+docker-compose -f docker-compose-configs.yml up go-db-no-saves
+
+# V2 Engine - Memory Durability (Fastest)
+docker-compose -f docker-compose-configs.yml up go-db-v2-memory
+
+# V2 Engine - OS Durability (Balanced - Default)
+docker-compose -f docker-compose-configs.yml up go-db-v2-os
+
+# V2 Engine - Full Durability (Safest)
+docker-compose -f docker-compose-configs.yml up go-db-v2-full
+```
+
+### **Docker Command Mapping**
+
+| Docker Service     | Command Equivalent                                                                                                  |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `go-db-dual-write` | `go run cmd/go-db.go -data-dir /app/data -no-saves=false`                                                           |
+| `go-db-no-saves`   | `go run cmd/go-db.go -data-dir /app/data -no-saves=true`                                                            |
+| `go-db-v2-memory`  | `go run cmd/go-db.go -v2 -durability memory -data-dir /app/data -wal-dir /app/wal -checkpoint-dir /app/checkpoints` |
+| `go-db-v2-os`      | `go run cmd/go-db.go -v2 -durability os -data-dir /app/data -wal-dir /app/wal -checkpoint-dir /app/checkpoints`     |
+| `go-db-v2-full`    | `go run cmd/go-db.go -v2 -durability full -data-dir /app/data -wal-dir /app/wal -checkpoint-dir /app/checkpoints`   |
 
 ## 🚨 Migration Guide
 

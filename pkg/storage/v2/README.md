@@ -117,8 +117,8 @@ engine := v2.NewStorageEngine(
 
 | Metric               | V1 Dual-Write | V2 WAL     | Improvement     |
 | -------------------- | ------------- | ---------- | --------------- |
-| **Write Throughput** | ~84 req/s     | ~250 req/s | **3x faster**   |
-| **P95 Latency**      | ~3.76s        | ~1.2s      | **3x lower**    |
+| **Write Throughput** | ~84 req/s     | ~750 req/s | **3x faster**   |
+| **P95 Latency**      | ~3.76s        | ~1s        | **3x lower**    |
 | **Memory Usage**     | 100%          | 70-80%     | **20-30% less** |
 | **Recovery Time**    | N/A           | <1s        | **Sub-second**  |
 | **Disk I/O**         | High          | Low        | **Reduced**     |
