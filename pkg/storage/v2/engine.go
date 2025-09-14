@@ -340,9 +340,11 @@ func (se *StorageEngine) CreateCollection(collName string) error {
 		return nil // Collection already exists
 	}
 
-	// Create _id index automatically (like v1 engine)
-	if err := se.indexEngine.CreateIndex(collName, "_id"); err != nil {
-		return fmt.Errorf("failed to create _id index: %w", err)
+	// Create _id index automatically (like v1 engine) - only if it doesn't exist
+	if _, exists := se.indexEngine.GetIndex(collName, "_id"); !exists {
+		if err := se.indexEngine.CreateIndex(collName, "_id"); err != nil {
+			return fmt.Errorf("failed to create _id index: %w", err)
+		}
 	}
 
 	se.collections[collName] = &CollectionInfo{
@@ -720,8 +722,11 @@ func (se *StorageEngine) buildIndexForCollection(collName, fieldName string) err
 // updateIndexesForDocument updates all indexes when a document changes
 func (se *StorageEngine) updateIndexesForDocument(collName, docID string, oldDoc, newDoc domain.Document) {
 	// Ensure _id index exists
-	if err := se.indexEngine.CreateIndex(collName, "_id"); err != nil {
-		// Index might already exist, which is fine
+	if _, exists := se.indexEngine.GetIndex(collName, "_id"); !exists {
+		if err := se.indexEngine.CreateIndex(collName, "_id"); err != nil {
+			// Log error but don't fail the operation
+			fmt.Printf("Failed to create _id index for collection %s: %v\n", collName, err)
+		}
 	}
 
 	// Update all indexes
