@@ -1,11 +1,30 @@
 package v2
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/adfharrison1/go-db/pkg/domain"
 )
+
+// createTestDirs creates unique test directories for each test
+func createTestDirs(t *testing.T) (string, string, string) {
+	testID := time.Now().UnixNano()
+	walDir := filepath.Join("/tmp", "test-wal", t.Name(), string(rune(testID)))
+	dataDir := filepath.Join("/tmp", "test-data", t.Name(), string(rune(testID)))
+	checkpointDir := filepath.Join("/tmp", "test-checkpoints", t.Name(), string(rune(testID)))
+
+	// Clean up after test
+	t.Cleanup(func() {
+		os.RemoveAll(walDir)
+		os.RemoveAll(dataDir)
+		os.RemoveAll(checkpointDir)
+	})
+
+	return walDir, dataDir, checkpointDir
+}
 
 func TestNewStorageEngine(t *testing.T) {
 	// Test basic creation
@@ -15,20 +34,22 @@ func TestNewStorageEngine(t *testing.T) {
 	}
 
 	// Test with options
+	walDir, dataDir, checkpointDir := createTestDirs(t)
 	engine = NewStorageEngine(
-		WithWALDir("/tmp/test-wal"),
-		WithDataDir("/tmp/test-data"),
+		WithWALDir(walDir),
+		WithDataDir(dataDir),
+		WithCheckpointDir(checkpointDir),
 		WithMaxMemory(512),
 		WithDurabilityLevel(DurabilityFull),
 		WithCheckpointInterval(10*time.Second),
 	)
 
-	if engine.walDir != "/tmp/test-wal" {
-		t.Errorf("Expected WAL dir to be /tmp/test-wal, got %s", engine.walDir)
+	if engine.walDir != walDir {
+		t.Errorf("Expected WAL dir to be %s, got %s", walDir, engine.walDir)
 	}
 
-	if engine.dataDir != "/tmp/test-data" {
-		t.Errorf("Expected data dir to be /tmp/test-data, got %s", engine.dataDir)
+	if engine.dataDir != dataDir {
+		t.Errorf("Expected data dir to be %s, got %s", dataDir, engine.dataDir)
 	}
 
 	if engine.maxMemoryMB != 512 {
@@ -41,9 +62,11 @@ func TestNewStorageEngine(t *testing.T) {
 }
 
 func TestStorageEngine_Insert(t *testing.T) {
+	walDir, dataDir, checkpointDir := createTestDirs(t)
 	engine := NewStorageEngine(
-		WithWALDir("/tmp/test-wal"),
-		WithDataDir("/tmp/test-data"),
+		WithWALDir(walDir),
+		WithDataDir(dataDir),
+		WithCheckpointDir(checkpointDir),
 	)
 
 	// Test document insertion
@@ -74,9 +97,11 @@ func TestStorageEngine_Insert(t *testing.T) {
 }
 
 func TestStorageEngine_BatchInsert(t *testing.T) {
+	walDir, dataDir, checkpointDir := createTestDirs(t)
 	engine := NewStorageEngine(
-		WithWALDir("/tmp/test-wal"),
-		WithDataDir("/tmp/test-data"),
+		WithWALDir(walDir),
+		WithDataDir(dataDir),
+		WithCheckpointDir(checkpointDir),
 	)
 
 	docs := []domain.Document{
@@ -108,9 +133,11 @@ func TestStorageEngine_BatchInsert(t *testing.T) {
 }
 
 func TestStorageEngine_UpdateById(t *testing.T) {
+	walDir, dataDir, checkpointDir := createTestDirs(t)
 	engine := NewStorageEngine(
-		WithWALDir("/tmp/test-wal"),
-		WithDataDir("/tmp/test-data"),
+		WithWALDir(walDir),
+		WithDataDir(dataDir),
+		WithCheckpointDir(checkpointDir),
 	)
 
 	// Insert initial document
@@ -156,9 +183,11 @@ func TestStorageEngine_UpdateById(t *testing.T) {
 }
 
 func TestStorageEngine_DeleteById(t *testing.T) {
+	walDir, dataDir, checkpointDir := createTestDirs(t)
 	engine := NewStorageEngine(
-		WithWALDir("/tmp/test-wal"),
-		WithDataDir("/tmp/test-data"),
+		WithWALDir(walDir),
+		WithDataDir(dataDir),
+		WithCheckpointDir(checkpointDir),
 	)
 
 	// Insert document
@@ -186,9 +215,11 @@ func TestStorageEngine_DeleteById(t *testing.T) {
 }
 
 func TestStorageEngine_FindAll(t *testing.T) {
+	walDir, dataDir, checkpointDir := createTestDirs(t)
 	engine := NewStorageEngine(
-		WithWALDir("/tmp/test-wal"),
-		WithDataDir("/tmp/test-data"),
+		WithWALDir(walDir),
+		WithDataDir(dataDir),
+		WithCheckpointDir(checkpointDir),
 	)
 
 	// Insert test documents
@@ -231,9 +262,11 @@ func TestStorageEngine_FindAll(t *testing.T) {
 }
 
 func TestStorageEngine_GetMemoryStats(t *testing.T) {
+	walDir, dataDir, checkpointDir := createTestDirs(t)
 	engine := NewStorageEngine(
-		WithWALDir("/tmp/test-wal"),
-		WithDataDir("/tmp/test-data"),
+		WithWALDir(walDir),
+		WithDataDir(dataDir),
+		WithCheckpointDir(checkpointDir),
 	)
 
 	stats := engine.GetMemoryStats()
@@ -255,9 +288,11 @@ func TestStorageEngine_GetMemoryStats(t *testing.T) {
 }
 
 func TestStorageEngine_CreateIndex(t *testing.T) {
+	walDir, dataDir, checkpointDir := createTestDirs(t)
 	engine := NewStorageEngine(
-		WithWALDir("/tmp/test-wal"),
-		WithDataDir("/tmp/test-data"),
+		WithWALDir(walDir),
+		WithDataDir(dataDir),
+		WithCheckpointDir(checkpointDir),
 	)
 
 	// Create collection first
@@ -300,9 +335,11 @@ func TestStorageEngine_CreateIndex(t *testing.T) {
 }
 
 func TestStorageEngine_IndexUpdates(t *testing.T) {
+	walDir, dataDir, checkpointDir := createTestDirs(t)
 	engine := NewStorageEngine(
-		WithWALDir("/tmp/test-wal"),
-		WithDataDir("/tmp/test-data"),
+		WithWALDir(walDir),
+		WithDataDir(dataDir),
+		WithCheckpointDir(checkpointDir),
 	)
 
 	// Create collection and insert document
@@ -350,9 +387,11 @@ func TestStorageEngine_IndexUpdates(t *testing.T) {
 }
 
 func TestStorageEngine_IndexDeletion(t *testing.T) {
+	walDir, dataDir, checkpointDir := createTestDirs(t)
 	engine := NewStorageEngine(
-		WithWALDir("/tmp/test-wal"),
-		WithDataDir("/tmp/test-data"),
+		WithWALDir(walDir),
+		WithDataDir(dataDir),
+		WithCheckpointDir(checkpointDir),
 	)
 
 	// Create collection and insert document
