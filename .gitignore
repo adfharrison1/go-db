@@ -2,3 +2,8 @@ bin
 go-db_data.godb
 collections/
 go-db
+wal/
+*.log
+checkpoint_*.json
+latest_checkpoint.json
+checkpoints/

@@ -11,18 +11,10 @@ import (
 	"github.com/adfharrison1/go-db/pkg/api"
 	"github.com/adfharrison1/go-db/pkg/domain"
 	"github.com/adfharrison1/go-db/pkg/storage"
+	v2 "github.com/adfharrison1/go-db/pkg/storage/v2"
 )
 
-// Server holds references to storage, router, etc.
-type Server struct {
-	router      *mux.Router
-	dbEngine    domain.StorageEngine
-	indexEngine domain.IndexEngine
-	api         *api.Handler
-	mu          sync.RWMutex
-}
-
-// NewServer creates a new instance of Server with storage options.
+// NewServer creates a new instance of Server with v1 storage engine.
 func NewServer(storageOptions ...storage.StorageOption) *Server {
 	dbEngine := storage.NewStorageEngine(storageOptions...)
 
@@ -49,6 +41,44 @@ func NewServer(storageOptions ...storage.StorageOption) *Server {
 	dbEngine.StartBackgroundWorkers()
 
 	return s
+}
+
+// NewServerV2 creates a new instance of Server with v2 storage engine.
+func NewServerV2(storageOptions ...v2.StorageOption) *Server {
+	dbEngine := v2.NewStorageEngine(storageOptions...)
+
+	s := &Server{
+		router:      mux.NewRouter(),
+		dbEngine:    dbEngine,
+		indexEngine: dbEngine.GetIndexEngine(), // Use the storage engine's index engine
+		api:         api.NewHandler(dbEngine, dbEngine.GetIndexEngine()),
+	}
+
+	// Register API routes
+	s.api.RegisterRoutes(s.router)
+
+	// Use the logging middleware for all routes
+	s.router.Use(requestLoggerMiddleware)
+
+	// Customize NotFoundHandler to log 404s
+	s.router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("WARN: No route found for %s %s", r.Method, r.URL.Path)
+		http.NotFound(w, r)
+	})
+
+	// Start background workers if configured
+	dbEngine.StartBackgroundWorkers()
+
+	return s
+}
+
+// Server holds references to storage, router, etc.
+type Server struct {
+	router      *mux.Router
+	dbEngine    domain.StorageEngine
+	indexEngine domain.IndexEngine
+	api         *api.Handler
+	mu          sync.RWMutex
 }
 
 // StopBackgroundWorkers stops any background workers

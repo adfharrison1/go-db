@@ -6,11 +6,18 @@ set -e
 echo "🚀 GO-DB Configuration Performance Comparison"
 echo "=============================================="
 echo ""
+echo "This script compares V1 (Dual-Write) and V2 (WAL) storage engines:"
+echo "• V1 Engine: Traditional dual-write with optional no-saves mode"
+echo "• V2 Engine: WAL-based with configurable durability levels"
+echo ""
 
 # Array of configurations to test
 declare -a configs=(
     "go-db-dual-write:Dual-Write Mode (Default - Maximum Data Safety)"
     "go-db-no-saves:No-Saves Mode (Maximum Performance)"
+    "go-db-v2-memory:V2 Engine - Memory Durability (Fastest)"
+    "go-db-v2-os:V2 Engine - OS Durability (Balanced)"
+    "go-db-v2-full:V2 Engine - Full Durability (Safest)"
 )
 
 # Results directory
@@ -69,8 +76,17 @@ for config_pair in "${configs[@]}"; do
     echo "🏃 Running optimized stress test..."
     result_file="$RESULTS_DIR/${service_name}-results.txt"
     
+    # Choose stress test based on engine type
+    if [[ "$service_name" == *"v2"* ]]; then
+        stress_test="stress-test-optimized-v2.js"
+        echo "   Using V2-specific stress test (unique ID format)"
+    else
+        stress_test="stress-test-optimized.js"
+        echo "   Using V1 stress test (numeric ID format)"
+    fi
+    
     # Capture both stdout and stderr, but show progress
-    if k6 run stress-test-optimized.js 2>&1 | tee "$result_file"; then
+    if k6 run "$stress_test" 2>&1 | tee "$result_file"; then
         echo "✅ Test completed successfully"
         
         # Extract key metrics
@@ -95,6 +111,16 @@ echo "🏁 All tests completed!"
 echo ""
 echo "📋 Results Summary:"
 echo "=================="
+echo ""
+echo "V1 Engine (Dual-Write):"
+echo "• go-db-dual-write: Writes to both memory and disk for maximum safety"
+echo "• go-db-no-saves: Memory-only for maximum performance"
+echo ""
+echo "V2 Engine (WAL-based):"
+echo "• go-db-v2-memory: WAL in memory only (fastest, no persistence)"
+echo "• go-db-v2-os: WAL synced to OS (balanced performance/safety)"
+echo "• go-db-v2-full: WAL synced to disk (safest, full durability)"
+echo ""
 for config_pair in "${configs[@]}"; do
     IFS=':' read -r service_name description <<< "$config_pair"
     result_file="$RESULTS_DIR/${service_name}-results.txt"

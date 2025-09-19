@@ -48,8 +48,134 @@ services:
       timeout: 5s
       retries: 2
 
+  # 3. V2 Engine - Memory Durability (fastest)
+  go-db-v2-memory:
+    build: .
+    ports:
+      - '8080:8080'
+    volumes:
+      - go-db-v2-memory-data:/app/data
+      - go-db-v2-memory-wal:/app/wal
+      - go-db-v2-memory-checkpoints:/app/checkpoints
+    restart: unless-stopped
+    command:
+      [
+        '-v2',
+        '-data-dir',
+        '/app/data',
+        '-wal-dir',
+        '/app/wal',
+        '-checkpoint-dir',
+        '/app/checkpoints',
+        '-durability',
+        'memory',
+      ]
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '--quiet',
+          '--tries=1',
+          '--spider',
+          'http://localhost:8080/health',
+        ]
+      interval: 60s
+      timeout: 5s
+      retries: 2
+
+  # 4. V2 Engine - OS Durability (balanced)
+  go-db-v2-os:
+    build: .
+    ports:
+      - '8080:8080'
+    volumes:
+      - go-db-v2-os-data:/app/data
+      - go-db-v2-os-wal:/app/wal
+      - go-db-v2-os-checkpoints:/app/checkpoints
+    restart: unless-stopped
+    command:
+      [
+        '-v2',
+        '-data-dir',
+        '/app/data',
+        '-wal-dir',
+        '/app/wal',
+        '-checkpoint-dir',
+        '/app/checkpoints',
+        '-durability',
+        'os',
+      ]
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '--quiet',
+          '--tries=1',
+          '--spider',
+          'http://localhost:8080/health',
+        ]
+      interval: 60s
+      timeout: 5s
+      retries: 2
+
+  # 5. V2 Engine - Full Durability (safest)
+  go-db-v2-full:
+    build: .
+    ports:
+      - '8080:8080'
+    volumes:
+      - go-db-v2-full-data:/app/data
+      - go-db-v2-full-wal:/app/wal
+      - go-db-v2-full-checkpoints:/app/checkpoints
+    restart: unless-stopped
+    command:
+      [
+        '-v2',
+        '-data-dir',
+        '/app/data',
+        '-wal-dir',
+        '/app/wal',
+        '-checkpoint-dir',
+        '/app/checkpoints',
+        '-durability',
+        'full',
+      ]
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '--quiet',
+          '--tries=1',
+          '--spider',
+          'http://localhost:8080/health',
+        ]
+      interval: 60s
+      timeout: 5s
+      retries: 2
+
 volumes:
   go-db-dual-write-data:
     driver: local
   go-db-no-saves-data:
+    driver: local
+  go-db-v2-memory-data:
+    driver: local
+  go-db-v2-memory-wal:
+    driver: local
+  go-db-v2-memory-checkpoints:
+    driver: local
+  go-db-v2-os-data:
+    driver: local
+  go-db-v2-os-wal:
+    driver: local
+  go-db-v2-os-checkpoints:
+    driver: local
+  go-db-v2-full-data:
+    driver: local
+  go-db-v2-full-wal:
+    driver: local
+  go-db-v2-full-checkpoints:
     driver: local
