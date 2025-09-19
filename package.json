@@ -1,0 +1,42 @@
+{
+  "name": "@go-db/typescript-sdk",
+  "version": "1.0.0",
+  "description": "TypeScript SDK for go-db document database API",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "yarn clean && yarn build"
+  },
+  "keywords": [
+    "database",
+    "document",
+    "api",
+    "typescript",
+    "sdk",
+    "go-db"
+  ],
+  "author": "go-db team",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/adfharrison1/go-db.git",
+    "directory": "SDKs/typescript"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  }
+}
