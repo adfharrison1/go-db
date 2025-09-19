@@ -1,27 +1,19 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import {
-  Document,
   HealthResponse,
-  BatchInsertRequest,
-  BatchInsertResponse,
-  BatchUpdateRequest,
-  BatchUpdateResponse,
   PaginationResult,
-  IndexListResponse,
-  IndexCreateResponse,
   GoDBClientConfig,
-  FindOptions,
   ApiResponse,
-  CollectionName,
-  DocumentId,
-  FieldName,
   ErrorResponse,
+  CollectionsSchema,
+  TypedClient,
+  Select,
 } from './types';
 
 /**
  * GoDBClient - Main client class for interacting with the go-db API
  */
-export class GoDBClient {
+export class GoDBClient<S extends CollectionsSchema> implements TypedClient<S> {
   private client: AxiosInstance;
   private baseURL: string;
 
@@ -79,14 +71,19 @@ export class GoDBClient {
 
   /**
    * Insert a single document into a collection
+   * @param collection - The name of the collection to insert the document into
+   * @param document - The document to insert
+   * @returns The inserted document
+   * @throws {Error}
    */
-  async insert(
-    collection: CollectionName,
-    document: Document
-  ): Promise<Document> {
-    const response = await this.client.post<Document>(
-      `/collections/${collection}`,
-      document
+
+  async insert<K extends keyof S>(
+    collection: K,
+    doc: Omit<S[K], '_id'>
+  ): Promise<S[K]> {
+    const response = await this.client.post<S[K]>(
+      `/collections/${String(collection)}`,
+      doc
     );
     return response.data;
   }
@@ -94,13 +91,19 @@ export class GoDBClient {
   /**
    * Insert multiple documents into a collection
    */
-  async batchInsert(
-    collection: CollectionName,
-    documents: Document[]
-  ): Promise<BatchInsertResponse> {
-    const request: BatchInsertRequest = { documents };
-    const response = await this.client.post<BatchInsertResponse>(
-      `/collections/${collection}/batch`,
+  async batchInsert<K extends keyof S>(
+    collection: K,
+    docs: Array<Omit<S[K], '_id'>>
+  ): Promise<{
+    success: boolean;
+    message: string;
+    inserted_count: number;
+    collection: string;
+    documents: S[K][];
+  }> {
+    const request = { documents: docs };
+    const response = await this.client.post(
+      `/collections/${String(collection)}/batch`,
       request
     );
     return response.data;
@@ -109,13 +112,24 @@ export class GoDBClient {
   /**
    * Update multiple documents in a collection
    */
-  async batchUpdate(
-    collection: CollectionName,
-    operations: BatchUpdateRequest['operations']
-  ): Promise<BatchUpdateResponse> {
-    const request: BatchUpdateRequest = { operations };
-    const response = await this.client.patch<BatchUpdateResponse>(
-      `/collections/${collection}/batch`,
+  async batchUpdate<K extends keyof S>(
+    collection: K,
+    operations: Array<{
+      id: string;
+      updates: Partial<Omit<S[K], '_id'>>;
+    }>
+  ): Promise<{
+    success: boolean;
+    message: string;
+    updated_count: number;
+    failed_count: number;
+    collection: string;
+    documents: S[K][];
+    errors?: string[];
+  }> {
+    const request = { operations };
+    const response = await this.client.patch(
+      `/collections/${String(collection)}/batch`,
       request
     );
     return response.data;
@@ -124,23 +138,33 @@ export class GoDBClient {
   /**
    * Get a document by its ID
    */
-  async getById(collection: CollectionName, id: DocumentId): Promise<Document> {
-    const response = await this.client.get<Document>(
-      `/collections/${collection}/documents/${id}`
-    );
-    return response.data;
+  async getById<K extends keyof S>(
+    collection: K,
+    id: string
+  ): Promise<S[K] | null> {
+    try {
+      const response = await this.client.get<S[K]>(
+        `/collections/${String(collection)}/documents/${id}`
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   /**
    * Update a document by its ID (partial update)
    */
-  async updateById(
-    collection: CollectionName,
-    id: DocumentId,
-    updates: Document
-  ): Promise<Document> {
-    const response = await this.client.patch<Document>(
-      `/collections/${collection}/documents/${id}`,
+  async updateById<K extends keyof S>(
+    collection: K,
+    id: string,
+    updates: Partial<Omit<S[K], '_id'>>
+  ): Promise<S[K]> {
+    const response = await this.client.patch<S[K]>(
+      `/collections/${String(collection)}/documents/${id}`,
       updates
     );
     return response.data;
@@ -149,13 +173,13 @@ export class GoDBClient {
   /**
    * Replace a document by its ID (complete replacement)
    */
-  async replaceById(
-    collection: CollectionName,
-    id: DocumentId,
-    document: Document
-  ): Promise<Document> {
-    const response = await this.client.put<Document>(
-      `/collections/${collection}/documents/${id}`,
+  async replaceById<K extends keyof S>(
+    collection: K,
+    id: string,
+    document: Omit<S[K], '_id'>
+  ): Promise<S[K]> {
+    const response = await this.client.put<S[K]>(
+      `/collections/${String(collection)}/documents/${id}`,
       document
     );
     return response.data;
@@ -164,53 +188,85 @@ export class GoDBClient {
   /**
    * Delete a document by its ID
    */
-  async deleteById(collection: CollectionName, id: DocumentId): Promise<void> {
-    await this.client.delete(`/collections/${collection}/documents/${id}`);
+  async deleteById<K extends keyof S>(
+    collection: K,
+    id: string
+  ): Promise<void> {
+    await this.client.delete(
+      `/collections/${String(collection)}/documents/${id}`
+    );
   }
 
   /**
    * Find documents in a collection with optional filtering and pagination
    */
-  async find(
-    collection: CollectionName,
-    options: FindOptions = {}
-  ): Promise<PaginationResult> {
+  async find<
+    K extends keyof S,
+    Sel extends readonly (keyof S[K])[] | undefined = undefined
+  >(
+    collection: K,
+    opts?: {
+      where?: Partial<S[K]>;
+      select?: Sel;
+      limit?: number;
+      offset?: number;
+      after?: string;
+      before?: string;
+    }
+  ): Promise<Array<Select<S[K], Sel>>> {
     const params = new URLSearchParams();
 
     // Add pagination parameters
-    if (options.limit !== undefined)
-      params.append('limit', options.limit.toString());
-    if (options.offset !== undefined)
-      params.append('offset', options.offset.toString());
-    if (options.after) params.append('after', options.after);
-    if (options.before) params.append('before', options.before);
+    if (opts?.limit !== undefined) {
+      params.append('limit', opts.limit.toString());
+    }
+    if (opts?.offset !== undefined) {
+      params.append('offset', opts.offset.toString());
+    }
+    if (opts?.after) {
+      params.append('after', opts.after);
+    }
+    if (opts?.before) {
+      params.append('before', opts.before);
+    }
 
     // Add filter parameters
-    Object.entries(options).forEach(([key, value]) => {
-      if (
-        key !== 'limit' &&
-        key !== 'offset' &&
-        key !== 'after' &&
-        key !== 'before' &&
-        value !== undefined
-      ) {
-        params.append(key, String(value));
-      }
-    });
+    if (opts?.where) {
+      Object.entries(opts.where).forEach(([key, value]) => {
+        if (value !== undefined) {
+          params.append(key, String(value));
+        }
+      });
+    }
 
     const response = await this.client.get<PaginationResult>(
-      `/collections/${collection}/find?${params.toString()}`
+      `/collections/${String(collection)}/find?${params.toString()}`
     );
-    return response.data;
+
+    // If select is specified, filter the fields
+    if (opts?.select) {
+      const selectFields = opts.select as readonly string[];
+      return response.data.documents.map((doc) => {
+        const selected: any = {};
+        selectFields.forEach((field) => {
+          if (field in doc) {
+            selected[field] = doc[field];
+          }
+        });
+        return selected;
+      });
+    }
+
+    return response.data.documents as Array<Select<S[K], Sel>>;
   }
 
   /**
    * Find documents with streaming support (returns a ReadableStream)
    */
-  async findWithStream(
-    collection: CollectionName,
-    filters: Record<string, any> = {}
-  ): Promise<ReadableStream<Document>> {
+  async findWithStream<K extends keyof S>(
+    collection: K,
+    filters: Partial<S[K]> = {}
+  ): Promise<ReadableStream<S[K]>> {
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => {
       if (value !== undefined) {
@@ -219,7 +275,9 @@ export class GoDBClient {
     });
 
     const response = await this.client.get(
-      `/collections/${collection}/find_with_stream?${params.toString()}`,
+      `/collections/${String(
+        collection
+      )}/find_with_stream?${params.toString()}`,
       {
         responseType: 'stream',
       }
@@ -261,9 +319,16 @@ export class GoDBClient {
   /**
    * Get all indexes for a collection
    */
-  async getIndexes(collection: CollectionName): Promise<IndexListResponse> {
-    const response = await this.client.get<IndexListResponse>(
-      `/collections/${collection}/indexes`
+  async getIndexes<K extends keyof S>(
+    collection: K
+  ): Promise<{
+    success: boolean;
+    collection: string;
+    indexes: string[];
+    index_count: number;
+  }> {
+    const response = await this.client.get(
+      `/collections/${String(collection)}/indexes`
     );
     return response.data;
   }
@@ -271,12 +336,17 @@ export class GoDBClient {
   /**
    * Create an index on a field in a collection
    */
-  async createIndex(
-    collection: CollectionName,
-    field: FieldName
-  ): Promise<IndexCreateResponse> {
-    const response = await this.client.post<IndexCreateResponse>(
-      `/collections/${collection}/indexes/${field}`
+  async createIndex<K extends keyof S>(
+    collection: K,
+    field: keyof S[K]
+  ): Promise<{
+    success: boolean;
+    message: string;
+    collection: string;
+    field: string;
+  }> {
+    const response = await this.client.post(
+      `/collections/${String(collection)}/indexes/${String(field)}`
     );
     return response.data;
   }

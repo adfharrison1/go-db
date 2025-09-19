@@ -3,12 +3,25 @@
  */
 
 /**
- * A document in the database
+ * A document in the database (generic version)
  */
 export interface Document {
   _id?: string;
   [key: string]: any;
 }
+
+/**
+ * Collections schema - user-defined shape of all collections
+ */
+export type CollectionsSchema = Record<string, unknown>;
+
+/**
+ * Utility type for selecting specific fields from a document
+ */
+export type Select<
+  T,
+  K extends readonly (keyof T)[] | undefined
+> = K extends readonly (keyof T)[] ? Pick<T, K[number]> : T;
 
 /**
  * Health check response
@@ -160,3 +173,133 @@ export type DocumentId = string;
  * Field name type (for type safety)
  */
 export type FieldName = string;
+
+/**
+ * Type-safe client interface that users can implement
+ */
+export interface TypedClient<S extends CollectionsSchema> {
+  /**
+   * Get a single document by ID
+   */
+  getById<K extends keyof S>(collection: K, id: string): Promise<S[K] | null>;
+
+  /**
+   * Find documents with optional filtering and field selection
+   */
+  find<
+    K extends keyof S,
+    Sel extends readonly (keyof S[K])[] | undefined = undefined
+  >(
+    collection: K,
+    opts?: {
+      where?: Partial<S[K]>;
+      select?: Sel;
+      limit?: number;
+      offset?: number;
+      after?: string;
+      before?: string;
+    }
+  ): Promise<Array<Select<S[K], Sel>>>;
+
+  /**
+   * Find documents with streaming support
+   */
+  findWithStream<K extends keyof S>(
+    collection: K,
+    filters: Partial<S[K]>
+  ): Promise<ReadableStream<S[K]>>;
+
+  /**
+   * Insert a document into a collection
+   */
+  insert<K extends keyof S>(
+    collection: K,
+    doc: Omit<S[K], '_id'>
+  ): Promise<S[K]>;
+
+  /**
+   * Update a document by ID with partial data
+   */
+  updateById<K extends keyof S>(
+    collection: K,
+    id: string,
+    updates: Partial<Omit<S[K], '_id'>>
+  ): Promise<S[K]>;
+
+  /**
+   * Replace a document by ID with complete data
+   */
+  replaceById<K extends keyof S>(
+    collection: K,
+    id: string,
+    document: Omit<S[K], '_id'>
+  ): Promise<S[K]>;
+
+  /**
+   * Delete a document by ID
+   */
+  deleteById<K extends keyof S>(collection: K, id: string): Promise<void>;
+
+  /**
+   * Batch insert multiple documents
+   */
+  batchInsert<K extends keyof S>(
+    collection: K,
+    docs: Array<Omit<S[K], '_id'>>
+  ): Promise<{
+    success: boolean;
+    message: string;
+    inserted_count: number;
+    collection: string;
+    documents: S[K][];
+  }>;
+
+  /**
+   * Batch update multiple documents
+   */
+  batchUpdate<K extends keyof S>(
+    collection: K,
+    operations: Array<{
+      id: string;
+      updates: Partial<Omit<S[K], '_id'>>;
+    }>
+  ): Promise<{
+    success: boolean;
+    message: string;
+    updated_count: number;
+    failed_count: number;
+    collection: string;
+    documents: S[K][];
+    errors?: string[];
+  }>;
+
+  /**
+   * Create an index on a field
+   */
+  createIndex<K extends keyof S>(
+    collection: K,
+    field: keyof S[K]
+  ): Promise<{
+    success: boolean;
+    message: string;
+    collection: string;
+    field: string;
+  }>;
+
+  /**
+   * Get all indexes for a collection
+   */
+  getIndexes<K extends keyof S>(
+    collection: K
+  ): Promise<{
+    success: boolean;
+    collection: string;
+    indexes: string[];
+    index_count: number;
+  }>;
+
+  /**
+   * Health check
+   */
+  health(): Promise<HealthResponse>;
+}
