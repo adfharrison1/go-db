@@ -6,14 +6,16 @@ import {
   ApiResponse,
   ErrorResponse,
   CollectionsSchema,
-  TypedClient,
+  TypedGoDBClient,
   Select,
 } from './types';
 
 /**
  * GoDBClient - Main client class for interacting with the go-db API
  */
-export class GoDBClient<S extends CollectionsSchema> implements TypedClient<S> {
+export class GoDBClient<S extends CollectionsSchema>
+  implements TypedGoDBClient<S>
+{
   private client: AxiosInstance;
   private baseURL: string;
 

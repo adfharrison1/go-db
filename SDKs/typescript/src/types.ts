@@ -177,7 +177,7 @@ export type FieldName = string;
 /**
  * Type-safe client interface that users can implement
  */
-export interface TypedClient<S extends CollectionsSchema> {
+export interface TypedGoDBClient<S extends CollectionsSchema> {
   /**
    * Get a single document by ID
    */

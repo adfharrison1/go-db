@@ -39,7 +39,7 @@ import { GoDBClientConfig } from './types';
 // Export a default instance factory
 export function createClient<S extends import('./types').CollectionsSchema>(
   config?: GoDBClientConfig
-): import('./types').TypedClient<S> {
+): import('./types').TypedGoDBClient<S> {
   return new GoDBClient<S>(config);
 }
 
