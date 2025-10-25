@@ -5,7 +5,7 @@
  *
  * @example
  * ```typescript
- * import { GoDBClient } from '@go-db/typescript-sdk';
+ * import { GoDBClient } from '@adfharrison1/go-db-typescript-sdk';
  *
  * const client = new GoDBClient({
  *   baseURL: 'http://localhost:8080'

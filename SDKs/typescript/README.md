@@ -17,15 +17,15 @@ A **type-safe** TypeScript SDK for the go-db document database API. Define your 
 ### 1. Install
 
 ```bash
-yarn add @go-db/typescript-sdk
+yarn add @adfharrison1/go-db-typescript-sdk
 # or
-npm install @go-db/typescript-sdk
+npm install @adfharrison1/go-db-typescript-sdk
 ```
 
 ### 2. Define Your Schema
 
 ```typescript
-import { createClient } from '@go-db/typescript-sdk';
+import { createClient } from '@adfharrison1/go-db-typescript-sdk';
 
 // Define your application's data types
 type User = {
@@ -288,7 +288,7 @@ console.log(health.status); // 'healthy'
 ### Client Creation
 
 ```typescript
-import { createClient, GoDBClient } from '@go-db/typescript-sdk';
+import { createClient, GoDBClient } from '@adfharrison1/go-db-typescript-sdk';
 
 // Factory function (recommended)
 const db = createClient<MySchema>({
