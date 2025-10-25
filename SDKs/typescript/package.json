@@ -1,6 +1,6 @@
 {
   "name": "@adfharrison1/go-db-typescript-sdk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "TypeScript SDK for go-db document database API",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
