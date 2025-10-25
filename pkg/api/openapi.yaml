@@ -1,0 +1,981 @@
+openapi: 3.0.3
+info:
+  title: go-db API
+  description: |
+    A high-performance document database API with support for both V1 and V2 storage engines.
+    
+    ## Features
+    - Document CRUD operations
+    - Batch operations for bulk inserts and updates
+    - Indexing support for improved query performance
+    - Pagination with both offset-based and cursor-based options
+    - Streaming support for large result sets
+    - Health monitoring
+    
+    ## Storage Engines
+    - **V1 Engine**: Simple in-memory storage with optional disk persistence
+    - **V2 Engine**: Advanced storage with WAL (Write-Ahead Logging) and checkpointing
+    
+    ## Durability Levels (V2 Only)
+    - **Memory**: Fastest, data in memory only
+    - **OS**: Balanced, relies on OS page cache
+    - **Full**: Maximum durability with fsync
+  version: 1.0.0
+  contact:
+    name: go-db API Support
+    url: https://github.com/adfharrison1/go-db
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: http://localhost:8081
+    description: Alternative port for testing
+
+paths:
+  /health:
+    get:
+      summary: Health Check
+      description: Check if the database service is running and healthy
+      operationId: getHealth
+      tags:
+        - System
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: "healthy"
+                message: "go-db is running"
+
+  /collections/{coll}:
+    post:
+      summary: Insert Document
+      description: Insert a single document into a collection
+      operationId: insertDocument
+      tags:
+        - Documents
+      parameters:
+        - name: coll
+          in: path
+          required: true
+          description: Collection name
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+            example: "users"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+            examples:
+              user:
+                summary: User document
+                value:
+                  name: "John Doe"
+                  email: "john@example.com"
+                  age: 30
+                  active: true
+      responses:
+        '201':
+          description: Document created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /collections/{coll}/batch:
+    post:
+      summary: Batch Insert Documents
+      description: Insert multiple documents into a collection in a single operation
+      operationId: batchInsertDocuments
+      tags:
+        - Documents
+      parameters:
+        - name: coll
+          in: path
+          required: true
+          description: Collection name
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+            example: "users"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchInsertRequest'
+            examples:
+              users:
+                summary: Multiple user documents
+                value:
+                  documents:
+                    - name: "John Doe"
+                      email: "john@example.com"
+                      age: 30
+                    - name: "Jane Smith"
+                      email: "jane@example.com"
+                      age: 25
+      responses:
+        '201':
+          description: Documents created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchInsertResponse'
+        '400':
+          description: Invalid request body or too many documents
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      summary: Batch Update Documents
+      description: Update multiple documents in a collection in a single operation
+      operationId: batchUpdateDocuments
+      tags:
+        - Documents
+      parameters:
+        - name: coll
+          in: path
+          required: true
+          description: Collection name
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+            example: "users"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchUpdateRequest'
+            examples:
+              updates:
+                summary: Update multiple users
+                value:
+                  operations:
+                    - id: "user_123"
+                      updates:
+                        age: 31
+                        last_login: "2024-01-15T10:30:00Z"
+                    - id: "user_456"
+                      updates:
+                        status: "inactive"
+      responses:
+        '200':
+          description: Documents updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchUpdateResponse'
+        '400':
+          description: Invalid request body or too many operations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /collections/{coll}/documents/{id}:
+    get:
+      summary: Get Document by ID
+      description: Retrieve a specific document by its ID
+      operationId: getDocumentById
+      tags:
+        - Documents
+      parameters:
+        - name: coll
+          in: path
+          required: true
+          description: Collection name
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+            example: "users"
+        - name: id
+          in: path
+          required: true
+          description: Document ID
+          schema:
+            type: string
+            example: "user_123"
+      responses:
+        '200':
+          description: Document found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '404':
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      summary: Update Document by ID
+      description: Partially update a document by its ID
+      operationId: updateDocumentById
+      tags:
+        - Documents
+      parameters:
+        - name: coll
+          in: path
+          required: true
+          description: Collection name
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+            example: "users"
+        - name: id
+          in: path
+          required: true
+          description: Document ID
+          schema:
+            type: string
+            example: "user_123"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+            examples:
+              partial_update:
+                summary: Partial update
+                value:
+                  age: 31
+                  last_login: "2024-01-15T10:30:00Z"
+      responses:
+        '200':
+          description: Document updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      summary: Replace Document by ID
+      description: Completely replace a document by its ID
+      operationId: replaceDocumentById
+      tags:
+        - Documents
+      parameters:
+        - name: coll
+          in: path
+          required: true
+          description: Collection name
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+            example: "users"
+        - name: id
+          in: path
+          required: true
+          description: Document ID
+          schema:
+            type: string
+            example: "user_123"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+            examples:
+              full_replace:
+                summary: Complete document replacement
+                value:
+                  name: "John Doe Updated"
+                  email: "john.updated@example.com"
+                  age: 31
+                  status: "active"
+                  last_login: "2024-01-15T10:30:00Z"
+      responses:
+        '200':
+          description: Document replaced successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      summary: Delete Document by ID
+      description: Delete a document by its ID
+      operationId: deleteDocumentById
+      tags:
+        - Documents
+      parameters:
+        - name: coll
+          in: path
+          required: true
+          description: Collection name
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+            example: "users"
+        - name: id
+          in: path
+          required: true
+          description: Document ID
+          schema:
+            type: string
+            example: "user_123"
+      responses:
+        '204':
+          description: Document deleted successfully
+        '404':
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /collections/{coll}/find:
+    get:
+      summary: Find Documents
+      description: Find documents in a collection with optional filtering and pagination
+      operationId: findDocuments
+      tags:
+        - Documents
+      parameters:
+        - name: coll
+          in: path
+          required: true
+          description: Collection name
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+            example: "users"
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of documents to return (default: 50, max: 1000)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 50
+            example: 10
+        - name: offset
+          in: query
+          required: false
+          description: Number of documents to skip (for pagination)
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+            example: 0
+        - name: after
+          in: query
+          required: false
+          description: Cursor for pagination (base64 encoded)
+          schema:
+            type: string
+            example: "eyJpZCI6InVzZXJfMTIzIiwidGltZXN0YW1wIjoiMjAyNC0wMS0xNVQxMDozMDowMFoifQ=="
+        - name: before
+          in: query
+          required: false
+          description: Cursor for pagination (base64 encoded)
+          schema:
+            type: string
+            example: "eyJpZCI6InVzZXJfNDU2IiwidGltZXN0YW1wIjoiMjAyNC0wMS0xNVQxMDozMDowMFoifQ=="
+        - name: name
+          in: query
+          required: false
+          description: Filter by name field
+          schema:
+            type: string
+            example: "John"
+        - name: age
+          in: query
+          required: false
+          description: Filter by age field
+          schema:
+            type: integer
+            example: 30
+        - name: active
+          in: query
+          required: false
+          description: Filter by active field
+          schema:
+            type: boolean
+            example: true
+      responses:
+        '200':
+          description: Documents found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginationResult'
+              examples:
+                users:
+                  summary: List of users
+                  value:
+                    documents:
+                      - _id: "user_123"
+                        name: "John Doe"
+                        email: "john@example.com"
+                        age: 30
+                        active: true
+                      - _id: "user_456"
+                        name: "Jane Smith"
+                        email: "jane@example.com"
+                        age: 25
+                        active: true
+                    has_next: true
+                    has_prev: false
+                    next_cursor: "eyJpZCI6InVzZXJfNzg5IiwidGltZXN0YW1wIjoiMjAyNC0wMS0xNVQxMDozMDowMFoifQ=="
+                    total: 150
+        '400':
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /collections/{coll}/find_with_stream:
+    get:
+      summary: Find Documents with Streaming
+      description: Find documents in a collection with streaming support for large result sets
+      operationId: findDocumentsWithStream
+      tags:
+        - Documents
+      parameters:
+        - name: coll
+          in: path
+          required: true
+          description: Collection name
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+            example: "users"
+        - name: name
+          in: query
+          required: false
+          description: Filter by name field
+          schema:
+            type: string
+            example: "John"
+        - name: age
+          in: query
+          required: false
+          description: Filter by age field
+          schema:
+            type: integer
+            example: 30
+        - name: active
+          in: query
+          required: false
+          description: Filter by active field
+          schema:
+            type: boolean
+            example: true
+      responses:
+        '200':
+          description: Documents streamed as Server-Sent Events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-Sent Events stream with JSON documents
+              example: |
+                data: {"_id":"user_123","name":"John Doe","email":"john@example.com","age":30}
+                
+                data: {"_id":"user_456","name":"Jane Smith","email":"jane@example.com","age":25}
+                
+                data: [DONE]
+        '400':
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /collections/{coll}/indexes:
+    get:
+      summary: Get Collection Indexes
+      description: Retrieve all indexes for a collection
+      operationId: getCollectionIndexes
+      tags:
+        - Indexes
+      parameters:
+        - name: coll
+          in: path
+          required: true
+          description: Collection name
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+            example: "users"
+      responses:
+        '200':
+          description: Indexes retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IndexListResponse'
+              example:
+                success: true
+                collection: "users"
+                indexes: ["_id", "email", "name"]
+                index_count: 3
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /collections/{coll}/indexes/{field}:
+    post:
+      summary: Create Index
+      description: Create an index on a specific field in a collection
+      operationId: createIndex
+      tags:
+        - Indexes
+      parameters:
+        - name: coll
+          in: path
+          required: true
+          description: Collection name
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+            example: "users"
+        - name: field
+          in: path
+          required: true
+          description: Field name to index
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_.-]+$'
+            example: "email"
+      responses:
+        '201':
+          description: Index created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IndexCreateResponse'
+              example:
+                success: true
+                message: "Index created successfully"
+                collection: "users"
+                field: "email"
+        '400':
+          description: Invalid field name or cannot create index on _id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    Document:
+      type: object
+      description: A document in the database
+      properties:
+        _id:
+          type: string
+          description: Unique document identifier (auto-generated)
+          example: "user_123"
+        name:
+          type: string
+          description: Document name
+          example: "John Doe"
+        email:
+          type: string
+          format: email
+          description: Email address
+          example: "john@example.com"
+        age:
+          type: integer
+          description: Age in years
+          example: 30
+        active:
+          type: boolean
+          description: Whether the document is active
+          example: true
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+          example: "2024-01-15T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2024-01-15T10:30:00Z"
+      additionalProperties: true
+      example:
+        _id: "user_123"
+        name: "John Doe"
+        email: "john@example.com"
+        age: 30
+        active: true
+        created_at: "2024-01-15T10:30:00Z"
+        updated_at: "2024-01-15T10:30:00Z"
+
+    HealthResponse:
+      type: object
+      description: Health check response
+      required:
+        - status
+        - message
+      properties:
+        status:
+          type: string
+          description: Service status
+          enum: [healthy, unhealthy]
+          example: "healthy"
+        message:
+          type: string
+          description: Status message
+          example: "go-db is running"
+
+    ErrorResponse:
+      type: object
+      description: Standard error response
+      required:
+        - error
+        - message
+        - code
+      properties:
+        error:
+          type: string
+          description: Error type
+          example: "Not Found"
+        message:
+          type: string
+          description: Error message
+          example: "Document not found"
+        code:
+          type: integer
+          description: HTTP status code
+          example: 404
+
+    BatchInsertRequest:
+      type: object
+      description: Request body for batch insert operations
+      required:
+        - documents
+      properties:
+        documents:
+          type: array
+          description: Array of documents to insert
+          items:
+            $ref: '#/components/schemas/Document'
+          minItems: 1
+          maxItems: 1000
+          example:
+            - name: "John Doe"
+              email: "john@example.com"
+              age: 30
+            - name: "Jane Smith"
+              email: "jane@example.com"
+              age: 25
+
+    BatchInsertResponse:
+      type: object
+      description: Response for batch insert operations
+      required:
+        - success
+        - message
+        - inserted_count
+        - collection
+        - documents
+      properties:
+        success:
+          type: boolean
+          description: Whether the operation was successful
+          example: true
+        message:
+          type: string
+          description: Success message
+          example: "Batch insert completed successfully"
+        inserted_count:
+          type: integer
+          description: Number of documents inserted
+          example: 2
+        collection:
+          type: string
+          description: Collection name
+          example: "users"
+        documents:
+          type: array
+          description: Array of created documents with generated IDs
+          items:
+            $ref: '#/components/schemas/Document'
+
+    BatchUpdateRequest:
+      type: object
+      description: Request body for batch update operations
+      required:
+        - operations
+      properties:
+        operations:
+          type: array
+          description: Array of update operations
+          items:
+            $ref: '#/components/schemas/BatchUpdateOperation'
+          minItems: 1
+          maxItems: 1000
+
+    BatchUpdateOperation:
+      type: object
+      description: A single update operation in a batch
+      required:
+        - id
+        - updates
+      properties:
+        id:
+          type: string
+          description: Document ID to update
+          example: "user_123"
+        updates:
+          type: object
+          description: Fields to update
+          additionalProperties: true
+          example:
+            age: 31
+            last_login: "2024-01-15T10:30:00Z"
+
+    BatchUpdateResponse:
+      type: object
+      description: Response for batch update operations
+      required:
+        - success
+        - message
+        - updated_count
+        - failed_count
+        - collection
+        - documents
+      properties:
+        success:
+          type: boolean
+          description: Whether the operation was successful
+          example: true
+        message:
+          type: string
+          description: Success message
+          example: "Batch update completed successfully"
+        updated_count:
+          type: integer
+          description: Number of documents updated
+          example: 2
+        failed_count:
+          type: integer
+          description: Number of documents that failed to update
+          example: 0
+        collection:
+          type: string
+          description: Collection name
+          example: "users"
+        documents:
+          type: array
+          description: Array of updated documents
+          items:
+            $ref: '#/components/schemas/Document'
+        errors:
+          type: array
+          description: Array of error messages for failed operations
+          items:
+            type: string
+          example: ["Document user_999 not found"]
+
+    PaginationResult:
+      type: object
+      description: Paginated result set
+      required:
+        - documents
+        - has_next
+        - has_prev
+      properties:
+        documents:
+          type: array
+          description: Array of documents
+          items:
+            $ref: '#/components/schemas/Document'
+        has_next:
+          type: boolean
+          description: Whether there are more documents after the current page
+          example: true
+        has_prev:
+          type: boolean
+          description: Whether there are documents before the current page
+          example: false
+        next_cursor:
+          type: string
+          description: Cursor for the next page (base64 encoded)
+          example: "eyJpZCI6InVzZXJfNzg5IiwidGltZXN0YW1wIjoiMjAyNC0wMS0xNVQxMDozMDowMFoifQ=="
+        prev_cursor:
+          type: string
+          description: Cursor for the previous page (base64 encoded)
+          example: "eyJpZCI6InVzZXJfMTIzIiwidGltZXN0YW1wIjoiMjAyNC0wMS0xNVQxMDozMDowMFoifQ=="
+        total:
+          type: integer
+          description: Total number of documents (only for offset-based pagination)
+          example: 150
+
+    IndexListResponse:
+      type: object
+      description: Response for listing collection indexes
+      required:
+        - success
+        - collection
+        - indexes
+        - index_count
+      properties:
+        success:
+          type: boolean
+          description: Whether the operation was successful
+          example: true
+        collection:
+          type: string
+          description: Collection name
+          example: "users"
+        indexes:
+          type: array
+          description: Array of indexed field names
+          items:
+            type: string
+          example: ["_id", "email", "name"]
+        index_count:
+          type: integer
+          description: Number of indexes
+          example: 3
+
+    IndexCreateResponse:
+      type: object
+      description: Response for creating an index
+      required:
+        - success
+        - message
+        - collection
+        - field
+      properties:
+        success:
+          type: boolean
+          description: Whether the operation was successful
+          example: true
+        message:
+          type: string
+          description: Success message
+          example: "Index created successfully"
+        collection:
+          type: string
+          description: Collection name
+          example: "users"
+        field:
+          type: string
+          description: Field name that was indexed
+          example: "email"
+
+tags:
+  - name: System
+    description: System health and monitoring endpoints
+  - name: Documents
+    description: Document CRUD and query operations
+  - name: Indexes
+    description: Index management operations
